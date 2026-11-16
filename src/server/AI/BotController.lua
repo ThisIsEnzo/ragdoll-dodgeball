@@ -1,13 +1,17 @@
--- BotController: NPC-боты, FSM Seek / Aim / Throw / Evade.
--- Заполняют пустые слоты, чтобы матч стартовал быстро даже при онлайне 1-2 игрока.
+-- BotController v0.2.1: NPC-боты, FSM Seek / Aim / Throw / Evade.
+-- Зависимости берутся резолвером от ServerScriptService.
 
 local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local CFG = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
-local BallService = require(script.Parent.Parent.services:WaitForChild("BallService"))
-local RagdollService = require(script.Parent.Parent.services:WaitForChild("RagdollService"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CFG = require(Shared:WaitForChild("BalanceConfig"))
+local Resolve = require(Shared:WaitForChild("Resolve"))
+
+local BallService = Resolve.Require(ServerScriptService, "BallService")
+local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 
 local BotController = {}
 local bots: { Model } = {}

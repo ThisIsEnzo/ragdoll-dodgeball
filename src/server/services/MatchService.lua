@@ -1,17 +1,19 @@
--- MatchService: очередь, команды, спавны, скамейка, матч до 3 побед, реванш.
--- MVP: одна арена на сервер. Мульти-арена — S3.
+-- MatchService v0.2.1: очередь, команды, спавны, скамейка, матч до 3 побед, реванш.
+-- Все зависимости берутся резолвером от ServerScriptService — вложенность папок не важна.
 
 local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CFG = require(Shared:WaitForChild("BalanceConfig"))
 local Net = require(Shared:WaitForChild("Net"))
+local Resolve = require(Shared:WaitForChild("Resolve"))
 
-local RoundService = require(script.Parent:WaitForChild("RoundService"))
-local RagdollService = require(script.Parent:WaitForChild("RagdollService"))
-local BallService = require(script.Parent:WaitForChild("BallService"))
-local BotController = require(script.Parent.Parent:WaitForChild("AI"):WaitForChild("BotController"))
+local RoundService = Resolve.Require(ServerScriptService, "RoundService")
+local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
+local BallService = Resolve.Require(ServerScriptService, "BallService")
+local BotController = Resolve.Require(ServerScriptService, "BotController")
 
 local MatchService = {}
 
