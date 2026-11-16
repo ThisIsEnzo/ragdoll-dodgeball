@@ -1,6 +1,5 @@
--- BalanceConfig v0.3.0: единственный источник чисел баланса.
--- Новое: секция Impact (модель отката), лёгкий мяч, лимит скорости подбора телом.
--- Убрано: Throw.ImpulseMul / Throw.ImpulseCap — откат больше не считается от массы мяча.
+-- BalanceConfig v0.4.0: единственный источник чисел баланса.
+-- Новое: секции Arena (площадка) и Juice (косметика удара).
 
 return {
 	Movement = {
@@ -47,7 +46,6 @@ return {
 		CarryOffset = Vector3.new(1.15, 0.35, -1.55),
 	},
 
-	-- Модель отката. Меняешь ощущения здесь, а не в коде.
 	Impact = {
 		SpeedToImpulse = 0.28,
 		MinLaunch = 14,
@@ -60,6 +58,39 @@ return {
 		CatchGrace = 0.15,
 		HitSlowdown = 0.85,
 		CatchKnockback = 26,
+	},
+
+	Arena = {
+		Width = 90,
+		Depth = 60,
+		WallHeight = 24,
+		WallThickness = 2,
+		CeilingHeight = 26,
+		FloorColor = Color3.fromRGB(196, 148, 90),
+		LineColor = Color3.fromRGB(240, 240, 245),
+		WallColor = Color3.fromRGB(130, 180, 225),
+		SuddenColor = Color3.fromRGB(230, 70, 60),
+		BenchColor = Color3.fromRGB(60, 72, 110),
+		ShrinkScale = 0.75,
+		ShrinkTime = 0.6,
+	},
+
+	Juice = {
+		Enabled = true,
+		ShakeScale = 1.0,
+		ShakeDecay = 6,
+		ShakeMaxDistance = 120,
+		FovBase = 70,
+		FovPunch = 8,
+		FovRecover = 10,
+		FlashBrightness = 0.09,
+		FlashSaturation = 0.35,
+		StarsCount = 14,
+		BonkWords = { "BONK!", "WHAM!", "POW!", "OOF!", "BOOP!", "BONK BONK!" },
+		SoundVolume = 0.6,
+		MaxSoundsPerFrame = 5,
+		TrailMinSpeed = 40,
+		MomentWindow = 1.2,
 	},
 
 	Round = {
