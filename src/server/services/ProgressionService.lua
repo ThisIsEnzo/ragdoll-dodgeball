@@ -1,5 +1,4 @@
--- ProgressionService: XP, уровни, монеты, дейли-квесты, стрик входа.
--- Это движок D1: игрок должен видеть прогресс в первые 60 секунд и причину вернуться завтра.
+-- ProgressionService v0.6.0: пишет firstThrowSeconds и ftueDone в профиль для когортного анализа.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -24,12 +23,11 @@ local function pushProfile(player: Player)
 	local data = DataService.Get(player)
 	if not data then return end
 	Net.FireClient("ProfileState", player, {
-		coins = data.coins,
-		xp = data.xp,
-		level = data.level,
+		coins = data.coins, xp = data.xp, level = data.level,
 		xpToNext = CFG.XP.ToNext(data.level),
 		streakDay = data.streakDay,
 		persistent = DataService.IsPersistent(player),
+		matches = data.matches,
 	})
 end
 
@@ -39,10 +37,7 @@ local function pushQuests(player: Player)
 	local list = {}
 	for index, quest in ipairs(data.quests) do
 		table.insert(list, {
-			index = index,
-			id = quest.id,
-			stat = quest.stat,
-			target = quest.target,
+			index = index, id = quest.id, stat = quest.stat, target = quest.target,
 			progress = math.min(data.questProgress[quest.stat] or 0, quest.target),
 			claimed = quest.claimed == true,
 			rewardCoins = CFG.Progression.QuestRewardCoins,
@@ -58,12 +53,7 @@ local function rollQuests(userId: number, day: number)
 	for _ = 1, math.min(CFG.Progression.QuestSlots, #pool) do
 		local index = rng:NextInteger(1, #pool)
 		local entry = table.remove(pool, index)
-		table.insert(picked, {
-			id = entry.id,
-			stat = entry.stat,
-			target = entry.target,
-			claimed = false,
-		})
+		table.insert(picked, { id = entry.id, stat = entry.stat, target = entry.target, claimed = false })
 	end
 	return picked
 end
@@ -79,6 +69,7 @@ local function refreshDaily(player: Player, data: any)
 		data.streakDay = 1
 	end
 	data.streakStamp = day
+	data.lastSeenDay = day
 
 	local reward = CFG.Progression.StreakCoins[data.streakDay] or CFG.Progression.StreakCoins[1]
 	data.coins += reward
@@ -87,8 +78,7 @@ local function refreshDaily(player: Player, data: any)
 	data.quests = rollQuests(player.UserId, day)
 	data.questProgress = {}
 
-	print(string.format("[Progress] %s day %d streak, +%d coins, daily quests rolled",
-		player.Name, day, reward))
+	print(string.format("[Progress] %s day %d streak, +%d coins, quests rolled", player.Name, day, reward))
 end
 
 local function checkLevelUp(player: Player, data: any)
@@ -99,8 +89,8 @@ local function checkLevelUp(player: Player, data: any)
 		data.coins += CFG.Progression.LevelUpCoins
 		local unlock = CFG.Unlocks[data.level]
 		Net.FireClient("LevelUp", player, data.level, unlock, CFG.Progression.LevelUpCoins)
-		print(string.format("[Progress] %s reached level %d%s", player.Name, data.level,
-			if unlock then (" (unlocked " .. unlock .. ")") else ""))
+		print(string.format("[Progress] %s level %d%s", player.Name, data.level,
+			if unlock then (" unlocked " .. unlock) else ""))
 	end
 	if data.level >= maxLevel then
 		data.xp = math.min(data.xp, CFG.XP.ToNext(maxLevel))
@@ -140,9 +130,7 @@ function ProgressionService.RegisterStat(player: Player?, stat: string, amount: 
 	if not data then return end
 	local n = amount or 1
 
-	if typeof(data[stat]) == "number" then
-		data[stat] += n
-	end
+	if typeof(data[stat]) == "number" then data[stat] += n end
 	data.questProgress[stat] = (data.questProgress[stat] or 0) + n
 
 	if stat == "kos" then
@@ -155,20 +143,30 @@ function ProgressionService.RegisterStat(player: Player?, stat: string, amount: 
 		ProgressionService.AddXP(player, CFG.Progression.ReviveXP * n)
 	elseif stat == "throws" then
 		ProgressionService.AddXP(player, CFG.Progression.ThrowXP * n)
+		if data.firstThrowSeconds == 0 then
+			local session = player:GetAttribute("SessionSeconds")
+			if typeof(session) == "number" then
+				data.firstThrowSeconds = math.floor(session * 10) / 10
+			end
+		end
 	end
 
 	pushQuests(player)
 end
 
+function ProgressionService.MarkFtueDone(player: Player?)
+	if not player then return end
+	local data = DataService.Get(player)
+	if data then data.ftueDone = true end
+end
+
 function ProgressionService.ClaimQuest(player: Player, index: any): boolean
 	if typeof(index) ~= "number" then return false end
 	local data = DataService.Get(player)
-	if not data then return end
+	if not data then return false end
 	local quest = data.quests[index]
 	if not quest or quest.claimed then return false end
-
-	local progress = data.questProgress[quest.stat] or 0
-	if progress < quest.target then return false end
+	if (data.questProgress[quest.stat] or 0) < quest.target then return false end
 
 	quest.claimed = true
 	data.coins += CFG.Progression.QuestRewardCoins
@@ -186,9 +184,7 @@ end
 
 function ProgressionService.SettleMatch(players: { Player }, winners: { Player })
 	local winnerSet = {}
-	for _, player in ipairs(winners) do
-		winnerSet[player.UserId] = true
-	end
+	for _, player in ipairs(winners) do winnerSet[player.UserId] = true end
 
 	for _, player in ipairs(players) do
 		local data = DataService.Get(player)
@@ -204,8 +200,6 @@ function ProgressionService.SettleMatch(players: { Player }, winners: { Player }
 	end
 end
 
-function ProgressionService.Start()
-	Players.PlayerRemoving:Connect(function() end)
-end
+function ProgressionService.Start() end
 
 return ProgressionService
