@@ -1,5 +1,5 @@
--- BalanceConfig v0.4.0: единственный источник чисел баланса.
--- Новое: секции Arena (площадка) и Juice (косметика удара).
+-- BalanceConfig v0.4.1: единственный источник чисел баланса.
+-- Новое: Throw.OriginLeeway (граница lag-comp броска) и секция Carry (локальный визуал).
 
 return {
 	Movement = {
@@ -22,6 +22,13 @@ return {
 		HoldWarn = 6,
 		SpawnOffset = 2.6,
 		SpawnLift = 1.0,
+		OriginLeeway = 8,
+	},
+
+	Carry = {
+		ShowGlow = true,
+		GlowBrightness = 0.55,
+		GlowRange = 7,
 	},
 
 	Catch = {
