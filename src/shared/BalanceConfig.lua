@@ -1,23 +1,63 @@
--- BalanceConfig v0.6.0: добавлены секции FTUE и Analytics.
+-- BalanceConfig v0.7.0: добавлены Mobile, AimAssist, Perf, Security.
 
 return {
 	Locale = { Default = "en", Force = "en" },
 
-	FTUE = {
+	Mobile = {
+		CompactWidth = 760,
+		ActionButton = { w = 104, h = 88 },
+		ThrowButton = { w = 136, h = 96 },
+		DesktopAction = { w = 96, h = 62 },
+		DesktopThrow = { w = 140, h = 72 },
+		ChargeSafetySeconds = 3,
+		GamepadEnabled = true,
+		QuestsCollapsedByDefault = true,
+	},
+
+	AimAssist = {
 		Enabled = true,
-		PromptSeconds = 6,
-		FirstThrowTarget = 8,
+		DesktopAngleDeg = 5,
+		MobileAngleDeg = 11,
+		Strength = 0.55,
+		MaxDistance = 75,
+		RequireLineOfSight = true,
+	},
+
+	Perf = {
+		TargetFps = 60,
+		MinFps = 30,
+		StreamingMinRadius = 64,
+		StreamingTargetRadius = 256,
+		MaxArenaParts = 3000,
+		RagdollSettleSpeed = 1.2,
+		RagdollSettleSpin = 0.6,
+		ProfilePushHz = 5,
+		ShadowCasters = false,
+	},
+
+	Security = {
+		MovementSampleHz = 5,
+		SpeedTolerance = 1.5,
+		SpeedSlack = 10,
+		TeleportDelta = 60,
+		SustainedViolations = 3,
+		WalkSpeedTolerance = 1.35,
+		HumanoidCheckSeconds = 2,
+		ViolationDecaySeconds = 5,
+		KickThreshold = 15,
+		RemoteBudgetPerSecond = 30,
+		PingMaxDistance = 120,
+	},
+
+	FTUE = {
+		Enabled = true, PromptSeconds = 6, FirstThrowTarget = 8,
 		Steps = { "pickup", "throw", "ko", "catch", "revive" },
-		SkipAfterMatches = 2,
-		BenchedHint = true,
+		SkipAfterMatches = 2, BenchedHint = true,
 	},
 
 	Analytics = {
-		Enabled = true,
-		SendToRoblox = true,
-		FunnelName = "ftue",
-		SessionFlushSeconds = 20,
-		KeepSessionSeconds = 900,
+		Enabled = true, SendToRoblox = true, FunnelName = "ftue",
+		SessionFlushSeconds = 20, KeepSessionSeconds = 900,
 		TimingBuckets = { 2, 5, 8, 15, 30, 60, 120 },
 	},
 
@@ -72,8 +112,7 @@ return {
 	},
 
 	Progression = {
-		MaxLevel = 100,
-		MatchWinCoins = 140, MatchLossCoins = 60,
+		MaxLevel = 100, MatchWinCoins = 140, MatchLossCoins = 60,
 		MatchWinXP = 120, MatchLossXP = 70,
 		KoXP = 8, KoCoins = 6, CatchXP = 20, CatchCoins = 12,
 		ReviveXP = 15, ThrowXP = 1, LevelUpCoins = 150,
@@ -124,6 +163,6 @@ return {
 
 	RateLimits = {
 		Throw = 4, Catch = 3, Dodge = 2, Ult = 1,
-		QueueJoin = 0.5, ShopBuy = 2, QuestClaim = 2, UiEvent = 4,
+		QueueJoin = 0.5, ShopBuy = 2, QuestClaim = 2, UiEvent = 4, PingRequest = 0.2,
 	},
 }
