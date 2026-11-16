@@ -1,9 +1,9 @@
--- CatchService v0.3.0: ловля с компенсацией лага + grace-окно.
--- Если игрок нажал ловлю за CatchGrace секунд до попадания, ловля побеждает попадание.
--- Это убирает ощущение "я нажал, но меня всё равно выбило".
+-- CatchService v0.5.0: ловля с компенсацией лага и grace-окном.
+-- Новое: событие Caught для прогрессии (квесты, XP, монеты).
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -11,12 +11,13 @@ local CFG = require(Shared:WaitForChild("BalanceConfig"))
 local Net = require(Shared:WaitForChild("Net"))
 local Resolve = require(Shared:WaitForChild("Resolve"))
 
-local ServerScriptService = game:GetService("ServerScriptService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 
 local CatchService = {}
+CatchService.Caught = Instance.new("BindableEvent")
+
 local MatchService
 local AbilityService
 local cooldownUntil: { [number]: number } = {}
@@ -49,9 +50,13 @@ local function succeed(player: Player, character: Model, ball: BasePart)
 	BallService.GiveBall(character, ball)
 
 	local team = RoundService.TeamOf(character)
-	if team and MatchService then MatchService.ReviveOne(team) end
+	local revived = false
+	if team and MatchService then
+		revived = MatchService.ReviveOne(team)
+	end
 	if AbilityService then AbilityService.AddHype(player, CFG.Hype.Catch) end
 
+	CatchService.Caught:Fire(player, revived)
 	Net.FireAll("FXEvent", "catch", character, thrower)
 end
 
@@ -61,6 +66,7 @@ local function findCatchable(character: Model, root: BasePart, t: number): BaseP
 
 	for _, ball in ipairs(CollectionService:GetTagged("Dodgeball")) do
 		if ball:IsA("BasePart")
+			and ball:IsDescendantOf(workspace)
 			and not ball:GetAttribute("HeldBy")
 			and ball:GetAttribute("Clean")
 			and not ball:GetAttribute("Uncatchable") then
@@ -111,7 +117,6 @@ function CatchService.Try(player: Player): boolean
 	return true
 end
 
--- Вызывается из Bootstrap, когда попадание пришло в grace-окно после нажатия ловли.
 function CatchService.GraceCatch(player: Player, ball: BasePart): boolean
 	if ball:GetAttribute("Uncatchable") then return false end
 	if ball.AssemblyLinearVelocity.Magnitude > CFG.Catch.MaxSpeed then return false end
