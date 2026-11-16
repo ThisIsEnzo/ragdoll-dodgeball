@@ -1,5 +1,6 @@
--- CatchService: сигнатурная механика. Ловля с компенсацией лага.
--- Успех: бросавший выбит, союзник воскрешён, мяч в руках. Промах: стаггер и кулдаун.
+-- CatchService v0.3.0: ловля с компенсацией лага + grace-окно.
+-- Если игрок нажал ловлю за CatchGrace секунд до попадания, ловля побеждает попадание.
+-- Это убирает ощущение "я нажал, но меня всё равно выбило".
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -8,15 +9,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CFG = require(Shared:WaitForChild("BalanceConfig"))
 local Net = require(Shared:WaitForChild("Net"))
+local Resolve = require(Shared:WaitForChild("Resolve"))
 
-local BallService = require(script.Parent:WaitForChild("BallService"))
-local RagdollService = require(script.Parent:WaitForChild("RagdollService"))
-local RoundService = require(script.Parent:WaitForChild("RoundService"))
+local ServerScriptService = game:GetService("ServerScriptService")
+local BallService = Resolve.Require(ServerScriptService, "BallService")
+local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
+local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 
 local CatchService = {}
 local MatchService
 local AbilityService
-
 local cooldownUntil: { [number]: number } = {}
 
 function CatchService.Init(matchService, abilityService)
@@ -31,6 +33,26 @@ local function stagger(character: Model)
 	task.delay(CFG.Catch.Stagger, function()
 		if humanoid.Parent then humanoid.WalkSpeed = CFG.Movement.WalkSpeed end
 	end)
+end
+
+local function succeed(player: Player, character: Model, ball: BasePart)
+	local thrower = BallService.LastThrower(ball)
+	if thrower and thrower.Parent and not RagdollService.IsActive(thrower) then
+		local throwerRoot = thrower:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if throwerRoot and root then
+			RagdollService.Knockback(thrower, throwerRoot.Position - root.Position, CFG.Impact.CatchKnockback)
+			if MatchService then MatchService.OnKO(thrower, "caught") end
+		end
+	end
+
+	BallService.GiveBall(character, ball)
+
+	local team = RoundService.TeamOf(character)
+	if team and MatchService then MatchService.ReviveOne(team) end
+	if AbilityService then AbilityService.AddHype(player, CFG.Hype.Catch) end
+
+	Net.FireAll("FXEvent", "catch", character, thrower)
 end
 
 local function findCatchable(character: Model, root: BasePart, t: number): BasePart?
@@ -73,8 +95,9 @@ function CatchService.Try(player: Player): boolean
 	local now = os.clock()
 	if (cooldownUntil[player.UserId] or 0) > now then return false end
 
-	local ping = player:GetNetworkPing()
-	local sampleTime = workspace:GetServerTimeNow() - ping
+	player:SetAttribute("CatchAttemptAt", now)
+
+	local sampleTime = workspace:GetServerTimeNow() - player:GetNetworkPing()
 	local ball = findCatchable(character, root, sampleTime)
 
 	if not ball then
@@ -84,25 +107,24 @@ function CatchService.Try(player: Player): boolean
 		return false
 	end
 
-	local thrower = BallService.LastThrower(ball)
-	if thrower and thrower.Parent and not RagdollService.IsActive(thrower) then
-		local throwerRoot = thrower:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if throwerRoot then
-			local direction = (throwerRoot.Position - root.Position).Unit
-			RagdollService.Apply(thrower, direction * 70)
-			if MatchService then MatchService.OnKO(thrower, "caught") end
-		end
-	end
-
-	BallService.GiveBall(character, ball)
-	ball:SetAttribute("Clean", false)
-
-	local team = RoundService.TeamOf(character)
-	if team and MatchService then MatchService.ReviveOne(team) end
-	if AbilityService then AbilityService.AddHype(player, CFG.Hype.Catch) end
-
-	Net.FireAll("FXEvent", "catch", character, thrower)
+	succeed(player, character, ball)
 	return true
+end
+
+-- Вызывается из Bootstrap, когда попадание пришло в grace-окно после нажатия ловли.
+function CatchService.GraceCatch(player: Player, ball: BasePart): boolean
+	if ball:GetAttribute("Uncatchable") then return false end
+	if ball.AssemblyLinearVelocity.Magnitude > CFG.Catch.MaxSpeed then return false end
+	local character = player.Character
+	if not character or RagdollService.IsActive(character) then return false end
+	succeed(player, character, ball)
+	return true
+end
+
+function CatchService.InGrace(player: Player?): boolean
+	if not player then return false end
+	local at = player:GetAttribute("CatchAttemptAt")
+	return typeof(at) == "number" and os.clock() - at <= CFG.Impact.CatchGrace
 end
 
 function CatchService.Start()
