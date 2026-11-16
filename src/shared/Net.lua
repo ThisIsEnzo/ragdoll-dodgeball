@@ -1,4 +1,4 @@
--- Net v0.2: обёртка над ремоутами. Сервер вызывает Init один раз, клиент использует Get.
+-- Net v0.5.0: добавлены ProfileState, QuestState, LevelUp для прогрессии.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -9,15 +9,14 @@ local RELIABLE = {
 	"ThrowRequest", "CatchRequest", "DodgeRequest", "UltRequest",
 	"QueueJoin", "PartyInvite", "ShopBuy", "QuestClaim",
 	"MatchState", "PingRequest", "RematchRequest", "HypeState",
+	"ProfileState", "QuestState", "LevelUp",
 }
 local UNRELIABLE = { "FXEvent" }
 
 local folder: Folder? = nil
 
 local function getFolder(): Folder
-	if folder then
-		return folder
-	end
+	if folder then return folder end
 	if RunService:IsServer() then
 		local existing = ReplicatedStorage:FindFirstChild("Remotes")
 		if existing and existing:IsA("Folder") then
@@ -35,7 +34,7 @@ local function getFolder(): Folder
 end
 
 function Net.Init()
-	assert(RunService:IsServer(), "Net.Init только на сервере")
+	assert(RunService:IsServer(), "Net.Init is server-only")
 	local parent = getFolder()
 	for _, name in ipairs(RELIABLE) do
 		if not parent:FindFirstChild(name) then
@@ -63,7 +62,7 @@ end
 
 function Net.On(name: string, handler: (...any) -> ())
 	local remote = Net.Get(name)
-	assert(remote, "Неизвестный remote: " .. name)
+	assert(remote, "Unknown remote: " .. name)
 	return remote.OnServerEvent:Connect(handler)
 end
 
