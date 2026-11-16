@@ -1,5 +1,4 @@
--- MatchService v0.5.0: очередь, команды, спавны, скамейка, матч до 3 побед, реванш.
--- Новое: расчёт наград через ProgressionService за раунды и за матч.
+-- MatchService v0.6.0: сообщает FtueService о завершённых матчах (шаги match_done / second_match).
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -15,6 +14,7 @@ local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local BotController = Resolve.Require(ServerScriptService, "BotController")
 local ProgressionService = Resolve.Require(ServerScriptService, "ProgressionService")
+local FtueService = Resolve.Require(ServerScriptService, "FtueService")
 
 local MatchService = {}
 
@@ -78,10 +78,8 @@ local function broadcast()
 	Net.FireAll("MatchState", {
 		state = RoundService.State,
 		timer = math.max(0, math.floor(RoundService.Timer)),
-		wins1 = RoundService.Wins(1),
-		wins2 = RoundService.Wins(2),
-		alive1 = RoundService.AliveCount(1),
-		alive2 = RoundService.AliveCount(2),
+		wins1 = RoundService.Wins(1), wins2 = RoundService.Wins(2),
+		alive1 = RoundService.AliveCount(1), alive2 = RoundService.AliveCount(2),
 		inMatch = inMatch,
 	})
 end
@@ -121,6 +119,9 @@ function MatchService.OnKO(character: Model, reason: string)
 	end
 	Net.FireAll("FXEvent", "ko", character, reason)
 
+	local victim = Players:GetPlayerFromCharacter(character)
+	if victim then FtueService.Benched(victim) end
+
 	task.delay(CFG.Round.RagdollTime, function()
 		if not character.Parent then return end
 		RagdollService.Restore(character)
@@ -151,9 +152,7 @@ end
 
 local function clearMatch()
 	for team = 1, 2 do
-		for _, character in ipairs(teams[team]) do
-			teamOf[character] = nil
-		end
+		for _, character in ipairs(teams[team]) do teamOf[character] = nil end
 		table.clear(teams[team])
 		table.clear(downed[team])
 	end
@@ -191,6 +190,7 @@ function MatchService.StartMatch()
 	table.clear(queue)
 	shuffle(participants)
 
+	local matchIndexByPlayer = {}
 	for index, player in ipairs(participants) do
 		local character = player.Character
 		if character then
@@ -198,6 +198,9 @@ function MatchService.StartMatch()
 			table.insert(teams[team], character)
 			teamOf[character] = team
 			character:SetAttribute("Team", team)
+			local data = game:GetService("ReplicatedStorage")
+			matchIndexByPlayer[player.UserId] = (player:GetAttribute("MatchesThisSession") or 0) + 1
+			player:SetAttribute("MatchesThisSession", matchIndexByPlayer[player.UserId])
 		end
 	end
 
@@ -226,16 +229,16 @@ function MatchService.StartMatch()
 			wins1 = RoundService.Wins(1), wins2 = RoundService.Wins(2), timer = 0,
 		})
 
-		ProgressionService.SettleMatch(
-			{ table.unpack(playersOf(1)), table.unpack(playersOf(2)) },
-			playersOf(matchWinner)
-		)
-		print("[Match] Team " .. matchWinner .. " won the match")
+		local all = { table.unpack(playersOf(1)), table.unpack(playersOf(2)) }
+		ProgressionService.SettleMatch(all, playersOf(matchWinner))
+		for _, player in ipairs(all) do
+			FtueService.MatchFinished(player, matchIndexByPlayer[player.UserId] or 1)
+		end
+
+		print("[Match] Team " .. matchWinner .. " won")
 		task.wait(CFG.Round.MatchEnd)
 
-		for _, player in ipairs(Players:GetPlayers()) do
-			MatchService.Enqueue(player)
-		end
+		for _, player in ipairs(Players:GetPlayers()) do MatchService.Enqueue(player) end
 		clearMatch()
 	end)
 end

@@ -1,4 +1,4 @@
--- Net v0.5.0: добавлены ProfileState, QuestState, LevelUp для прогрессии.
+-- Net v0.6.0: добавлены FtueState (сервер -> клиент) и UiEvent (клиент -> сервер, только UI).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10,6 +10,7 @@ local RELIABLE = {
 	"QueueJoin", "PartyInvite", "ShopBuy", "QuestClaim",
 	"MatchState", "PingRequest", "RematchRequest", "HypeState",
 	"ProfileState", "QuestState", "LevelUp",
+	"FtueState", "UiEvent",
 }
 local UNRELIABLE = { "FXEvent" }
 
@@ -54,9 +55,7 @@ end
 
 function Net.Get(name: string)
 	local parent = getFolder()
-	if RunService:IsServer() then
-		return parent:FindFirstChild(name)
-	end
+	if RunService:IsServer() then return parent:FindFirstChild(name) end
 	return parent:WaitForChild(name, 30)
 end
 

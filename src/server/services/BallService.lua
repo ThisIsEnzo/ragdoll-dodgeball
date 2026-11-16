@@ -1,10 +1,7 @@
--- BallService v0.4.1.
--- ПЕРЕНОС: сервер хранит только факт владения (атрибут Carrying на персонаже).
--- Настоящая деталь уезжает в ServerStorage и не реплицируется. Визуал рисует клиент.
--- Ноль покадрового трафика, ноль отставания мяча от тела.
--- БРОСОК: принимает позицию релиза от клиента, ограниченную OriginLeeway (lag-comp + анти-чит).
--- ПОПАДАНИЯ: Spherecast по пути мяча за кадр, без туннелинга.
+-- BallService v0.6.0: добавлено событие PickedUp для FTUE и аналитики.
+-- Перенос мяча остаётся локальным визуалом, попадания считаются sweep-ом.
 
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 local CollectionService = game:GetService("CollectionService")
@@ -16,6 +13,7 @@ local Collision = require(Shared:WaitForChild("Collision"))
 
 local BallService = {}
 BallService.HitDetected = Instance.new("BindableEvent")
+BallService.PickedUp = Instance.new("BindableEvent")
 
 local ballsFolder: Folder? = nil
 local heldFolder: Folder? = nil
@@ -42,9 +40,7 @@ local function isActorAlive(character: Model): boolean
 end
 
 local function setCarrying(actor: Model?, value: boolean)
-	if actor and actor.Parent then
-		actor:SetAttribute("Carrying", value)
-	end
+	if actor and actor.Parent then actor:SetAttribute("Carrying", value) end
 end
 
 local function clearTables(ball: BasePart)
@@ -57,24 +53,17 @@ local function clearTables(ball: BasePart)
 	heldSince[ball] = nil
 end
 
--- Возврат мяча в мир: физика включается, сервер снова владелец
 local function release(ball: BasePart)
 	clearTables(ball)
 	ball:SetAttribute("HeldBy", nil)
-
 	if not ball:IsDescendantOf(game) then return end
-
-	pcall(function()
-		ball.Parent = ballsFolder
-	end)
+	pcall(function() ball.Parent = ballsFolder end)
 	ball.Transparency = 0
 	ball.Anchored = false
 	ball.CanCollide = true
 	ball.CanQuery = true
 	ball.CollisionGroup = "Balls"
-	pcall(function()
-		ball:SetNetworkOwner(nil)
-	end)
+	pcall(function() ball:SetNetworkOwner(nil) end)
 end
 
 local function attach(actor: Model, ball: BasePart)
@@ -97,10 +86,10 @@ local function attach(actor: Model, ball: BasePart)
 	ball:SetAttribute("Clean", false)
 	setCarrying(actor, true)
 
-	-- паркуем вне репликации: клиенты рисуют свой визуал
-	pcall(function()
-		ball.Parent = heldFolder
-	end)
+	pcall(function() ball.Parent = heldFolder end)
+
+	local player = Players:GetPlayerFromCharacter(actor)
+	if player then BallService.PickedUp:Fire(player) end
 	return true
 end
 
@@ -185,9 +174,7 @@ end
 
 function BallService.SpawnAll()
 	for _, character in ipairs(CollectionService:GetTagged("DodgeballActor")) do
-		if character:IsA("Model") then
-			character:SetAttribute("Carrying", false)
-		end
+		if character:IsA("Model") then character:SetAttribute("Carrying", false) end
 	end
 	if heldFolder then heldFolder:ClearAllChildren() end
 	if ballsFolder then ballsFolder:ClearAllChildren() end
@@ -226,12 +213,8 @@ function BallService.LastThrower(ball: BasePart): (Model?, number?)
 end
 
 function BallService.Throw(
-	actor: Model,
-	ball: BasePart,
-	direction: Vector3,
-	charge: number,
-	speedMul: number?,
-	clientOrigin: Vector3?
+	actor: Model, ball: BasePart, direction: Vector3,
+	charge: number, speedMul: number?, clientOrigin: Vector3?
 ): boolean
 	if holder[ball] ~= actor then return false end
 	if direction.Magnitude < 0.01 then return false end
@@ -243,7 +226,6 @@ function BallService.Throw(
 	local t = math.clamp((charge - CFG.Throw.ChargeMin) / (CFG.Throw.ChargeMax - CFG.Throw.ChargeMin), 0, 1)
 	local speed = (CFG.Throw.SpeedMin + (CFG.Throw.SpeedMax - CFG.Throw.SpeedMin) * t) * (speedMul or 1)
 
-	-- lag-comp: верим позиции клиента, если она рядом с серверной копией
 	local base = root.Position
 	if typeof(clientOrigin) == "Vector3" then
 		if (clientOrigin - root.Position).Magnitude <= CFG.Throw.OriginLeeway then
@@ -347,7 +329,6 @@ function BallService.Start()
 	RunService.Heartbeat:Connect(function(dt)
 		local now = os.clock()
 
-		-- перенос: только таймаут. Никаких CFrame, никакой репликации.
 		for ball, actor in pairs(holder) do
 			if not actor.Parent or not ball.Parent then
 				clearTables(ball)
