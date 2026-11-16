@@ -1,6 +1,8 @@
--- InputController v0.7.0: тач без залипания, геймпад, направление рывка по джойстику.
--- Заряд отпускается по глобальному InputEnded, даже если палец съехал с кнопки.
--- Страховка: если заряд держится дольше ChargeSafetySeconds, он сбрасывается сам.
+-- InputController v0.9.0: прицел больше не берёт сырой наклон камеры.
+--
+-- Камера в третьем лице смотрит вниз. Сырой LookVector отправлял мяч в пол в паре метров.
+-- Теперь: горизонталь камеры + фиксированный лофт, влияние питча ослаблено.
+-- Рывок идёт по джойстику, заряд отпускается глобально, геймпад поддержан.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -14,14 +16,26 @@ local Net = require(Shared:WaitForChild("Net"))
 local InputController = {}
 
 local chargeStart: number? = nil
-local chargeInput: InputObject? = nil
 
-local function cameraDirection(): Vector3
+local function aimDirection(): Vector3
 	local camera = workspace.CurrentCamera
-	return camera and camera.CFrame.LookVector or Vector3.new(0, 0, -1)
+	if not camera then return Vector3.new(0, 0, -1) end
+
+	local look = camera.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+	flat = flat.Unit
+
+	local pitch = math.asin(math.clamp(look.Y, -1, 1)) * CFG.Throw.PitchInfluence
+	local angle = math.clamp(
+		pitch + math.rad(CFG.Throw.LoftDeg),
+		math.rad(CFG.Throw.MinAngleDeg),
+		math.rad(CFG.Throw.MaxAngleDeg)
+	)
+
+	return (flat * math.cos(angle) + Vector3.new(0, math.sin(angle), 0)).Unit
 end
 
--- Рывок идёт туда, куда игрок реально движется (джойстик или WASD), иначе по камере
 local function dodgeDirection(): Vector3
 	local character = Players.LocalPlayer.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -44,21 +58,18 @@ end
 function InputController.BeginCharge(input: InputObject?)
 	if chargeStart then return end
 	chargeStart = os.clock()
-	chargeInput = input
 end
 
 function InputController.ReleaseCharge()
 	if not chargeStart then return end
 	local charge = math.clamp(os.clock() - chargeStart, CFG.Throw.ChargeMin, CFG.Throw.ChargeMax)
 	chargeStart = nil
-	chargeInput = nil
 	local remote = Net.Get("ThrowRequest")
-	if remote then remote:FireServer(charge, cameraDirection(), myRootPosition()) end
+	if remote then remote:FireServer(charge, aimDirection(), myRootPosition()) end
 end
 
 function InputController.CancelCharge()
 	chargeStart = nil
-	chargeInput = nil
 end
 
 function InputController.GetCharge(): number
@@ -120,7 +131,6 @@ function InputController.Init()
 		end
 	end)
 
-	-- Глобальное отпускание: срабатывает, даже если палец ушёл за пределы кнопки
 	UserInputService.InputEnded:Connect(function(input)
 		if not chargeStart then return end
 		local kind = input.UserInputType
