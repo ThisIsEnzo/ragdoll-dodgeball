@@ -1,5 +1,7 @@
--- InputController: PC и mobile. Клиент шлёт только намерения.
+-- InputController v0.4.1: PC и mobile. Клиент шлёт только намерения.
+-- Новое: вместе с броском отправляем свою позицию релиза (сервер ограничит её OriginLeeway).
 
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -23,6 +25,12 @@ local function moveDirection(): Vector3
 	return if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
 end
 
+local function myRootPosition(): Vector3?
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	return root and root.Position or nil
+end
+
 function InputController.BeginCharge()
 	chargeStart = os.clock()
 end
@@ -32,7 +40,9 @@ function InputController.ReleaseCharge()
 	local charge = math.clamp(os.clock() - chargeStart, CFG.Throw.ChargeMin, CFG.Throw.ChargeMax)
 	chargeStart = nil
 	local remote = Net.Get("ThrowRequest")
-	if remote then remote:FireServer(charge, cameraDirection()) end
+	if remote then
+		remote:FireServer(charge, cameraDirection(), myRootPosition())
+	end
 end
 
 function InputController.GetCharge(): number
