@@ -1,5 +1,4 @@
--- Net: тонкая обёртка над ремоутами.
--- Сервер вызывает Net.Init() один раз при старте, клиент использует Net.Get().
+-- Net v0.2: обёртка над ремоутами. Сервер вызывает Init один раз, клиент использует Get.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -8,7 +7,8 @@ local Net = {}
 
 local RELIABLE = {
 	"ThrowRequest", "CatchRequest", "DodgeRequest", "UltRequest",
-	"QueueJoin", "PartyInvite", "ShopBuy", "QuestClaim", "MatchState",
+	"QueueJoin", "PartyInvite", "ShopBuy", "QuestClaim",
+	"MatchState", "PingRequest", "RematchRequest", "HypeState",
 }
 local UNRELIABLE = { "FXEvent" }
 
@@ -35,20 +35,20 @@ local function getFolder(): Folder
 end
 
 function Net.Init()
-	assert(RunService:IsServer(), "Net.Init вызывается только на сервере")
+	assert(RunService:IsServer(), "Net.Init только на сервере")
 	local parent = getFolder()
 	for _, name in ipairs(RELIABLE) do
 		if not parent:FindFirstChild(name) then
-			local remote = Instance.new("RemoteEvent")
-			remote.Name = name
-			remote.Parent = parent
+			local r = Instance.new("RemoteEvent")
+			r.Name = name
+			r.Parent = parent
 		end
 	end
 	for _, name in ipairs(UNRELIABLE) do
 		if not parent:FindFirstChild(name) then
-			local remote = Instance.new("UnreliableRemoteEvent")
-			remote.Name = name
-			remote.Parent = parent
+			local r = Instance.new("UnreliableRemoteEvent")
+			r.Name = name
+			r.Parent = parent
 		end
 	end
 end
@@ -68,17 +68,13 @@ function Net.On(name: string, handler: (...any) -> ())
 end
 
 function Net.FireClient(name: string, player: Player, ...: any)
-	local remote = Net.Get(name)
-	if remote then
-		remote:FireClient(player, ...)
-	end
+	local r = Net.Get(name)
+	if r then r:FireClient(player, ...) end
 end
 
 function Net.FireAll(name: string, ...: any)
-	local remote = Net.Get(name)
-	if remote then
-		remote:FireAllClients(...)
-	end
+	local r = Net.Get(name)
+	if r then r:FireAllClients(...) end
 end
 
 return Net
