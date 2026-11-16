@@ -1,7 +1,13 @@
--- BalanceConfig v0.4.1: единственный источник чисел баланса.
--- Новое: Throw.OriginLeeway (граница lag-comp броска) и секция Carry (локальный визуал).
+-- BalanceConfig v0.5.0: единственный источник чисел баланса.
+-- Новое: Locale (принудительный английский), Progression (XP, монеты, стрик, квесты),
+-- Unlocks (что открывается на каком уровне), QuestPool.
 
 return {
+	Locale = {
+		Default = "en",
+		Force = "en", -- nil -> автоопределение по Player.LocaleId
+	},
+
 	Movement = {
 		WalkSpeed = 18,
 		JumpPower = 50,
@@ -98,6 +104,49 @@ return {
 		MaxSoundsPerFrame = 5,
 		TrailMinSpeed = 40,
 		MomentWindow = 1.2,
+	},
+
+	Progression = {
+		MaxLevel = 100,
+		MatchWinCoins = 140,
+		MatchLossCoins = 60,
+		MatchWinXP = 120,
+		MatchLossXP = 70,
+		KoXP = 8,
+		KoCoins = 6,
+		CatchXP = 20,
+		CatchCoins = 12,
+		ReviveXP = 15,
+		ThrowXP = 1,
+		LevelUpCoins = 150,
+		StreakCoins = { 100, 150, 200, 250, 300, 400, 500 },
+		QuestSlots = 3,
+		QuestRewardCoins = 150,
+		QuestRewardXP = 60,
+		AutosaveSeconds = 60,
+		LockSeconds = 900,
+	},
+
+	Unlocks = {
+		[5] = "Curve Throw",
+		[6] = "Quick Hands",
+		[8] = "Cannon Ult",
+		[10] = "Fleet Foot",
+		[12] = "Bounce Throw",
+		[15] = "Magnet Ult",
+		[18] = "Grip",
+		[20] = "Heavy Throw",
+		[25] = "Wall Ult",
+		[28] = "Second Wind",
+		[30] = "Ghost Ult",
+	},
+
+	QuestPool = {
+		{ id = "ko", stat = "kos", target = 12 },
+		{ id = "catch", stat = "catches", target = 3 },
+		{ id = "win", stat = "roundWins", target = 3 },
+		{ id = "throw", stat = "throws", target = 25 },
+		{ id = "revive", stat = "revives", target = 2 },
 	},
 
 	Round = {
