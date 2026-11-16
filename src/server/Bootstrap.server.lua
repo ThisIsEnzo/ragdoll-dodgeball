@@ -1,5 +1,5 @@
--- Bootstrap v0.5.0: подключены DataService и ProgressionService.
--- Порядок: данные до прогрессии, прогрессия до матча. Логи на английском.
+-- Bootstrap v0.6.0: подключены AnalyticsService и FtueService.
+-- Порядок: аналитика и данные до FTUE, FTUE до матча.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -22,8 +22,10 @@ local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 local AbilityService = Resolve.Require(ServerScriptService, "AbilityService")
+local AnalyticsService = Resolve.Require(ServerScriptService, "AnalyticsService")
 local DataService = Resolve.Require(ServerScriptService, "DataService")
 local ProgressionService = Resolve.Require(ServerScriptService, "ProgressionService")
+local FtueService = Resolve.Require(ServerScriptService, "FtueService")
 local MatchService = Resolve.Require(ServerScriptService, "MatchService")
 local CatchService = Resolve.Require(ServerScriptService, "CatchService")
 
@@ -31,8 +33,8 @@ Net.Init()
 CatchService.Init(MatchService, AbilityService)
 
 local ORDER = {
-	AntiCheat, ArenaService, RagdollService, BallService, RoundService,
-	AbilityService, DataService, ProgressionService, MatchService, CatchService,
+	AntiCheat, ArenaService, RagdollService, BallService, RoundService, AbilityService,
+	AnalyticsService, DataService, ProgressionService, FtueService, MatchService, CatchService,
 }
 
 for _, service in ipairs(ORDER) do
@@ -46,6 +48,7 @@ BallService.SpawnAll()
 
 local throwCooldown: { [number]: number } = {}
 local dodgeCooldown: { [number]: number } = {}
+local sessionStart: { [number]: number } = {}
 
 local function onCharacter(character: Model)
 	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
@@ -58,21 +61,42 @@ local function onCharacter(character: Model)
 end
 
 local function onPlayer(player: Player)
+	sessionStart[player.UserId] = os.clock()
+	player:SetAttribute("MatchesThisSession", 0)
+
 	ProgressionService.OnPlayer(player)
+	FtueService.OnPlayer(player)
+
 	player.CharacterAdded:Connect(onCharacter)
 	if player.Character then onCharacter(player.Character) end
 	MatchService.Enqueue(player)
 end
 
 Players.PlayerAdded:Connect(onPlayer)
-for _, player in ipairs(Players:GetPlayers()) do
-	task.spawn(onPlayer, player)
-end
+for _, player in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, player) end
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+		for _, player in ipairs(Players:GetPlayers()) do
+			local started = sessionStart[player.UserId]
+			if started then
+				player:SetAttribute("SessionSeconds", os.clock() - started)
+			end
+		end
+	end
+end)
+
+BallService.PickedUp.Event:Connect(function(player: Player)
+	FtueService.PickedUp(player)
+end)
 
 CatchService.Caught.Event:Connect(function(player: Player, revived: boolean)
 	ProgressionService.RegisterStat(player, "catches", 1)
+	FtueService.Caught(player)
 	if revived then
 		ProgressionService.RegisterStat(player, "revives", 1)
+		FtueService.Revived(player)
 	end
 end)
 
@@ -96,6 +120,7 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, client
 		throwCooldown[player.UserId] = now + CFG.Throw.Cooldown
 		if uncatchable then ball:SetAttribute("Uncatchable", true) end
 		ProgressionService.RegisterStat(player, "throws", 1)
+		FtueService.Threw(player)
 		Net.FireAll("FXEvent", "throw", ball, player.UserId)
 	end
 end)
@@ -130,7 +155,20 @@ end)
 
 Net.On("QuestClaim", function(player: Player, index: any)
 	if not AntiCheat.Allow(player, "QuestClaim") then return end
-	ProgressionService.ClaimQuest(player, index)
+	if ProgressionService.ClaimQuest(player, index) then
+		AnalyticsService.Event(player, "quest_claim", { index = index })
+	end
+end)
+
+Net.On("UiEvent", function(player: Player, marker: any, device: any)
+	if not AntiCheat.Allow(player, "UiEvent") then return end
+	if typeof(marker) == "string" then
+		AnalyticsService.UiMarker(player, marker)
+	end
+	if typeof(device) == "string" then
+		player:SetAttribute("IsMobile", device == "mobile")
+		AnalyticsService.SetDevice(player, device)
+	end
 end)
 
 Net.On("QueueJoin", function(player: Player)
@@ -140,6 +178,7 @@ end)
 
 Net.On("RematchRequest", function(player: Player)
 	if not AntiCheat.Allow(player, "QueueJoin") then return end
+	AnalyticsService.Event(player, "rematch_pressed", {})
 	MatchService.Enqueue(player)
 end)
 
@@ -176,6 +215,7 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 		local throwerPlayer = Players:GetPlayerFromCharacter(thrower)
 		AbilityService.AddHype(throwerPlayer, CFG.Hype.Hit)
 		ProgressionService.RegisterStat(throwerPlayer, "kos", 1)
+		FtueService.KnockedOut(throwerPlayer)
 		ball.AssemblyLinearVelocity *= CFG.Impact.HitSlowdown
 		Net.FireAll("FXEvent", "ko", character, thrower, speed)
 	end
@@ -184,6 +224,7 @@ end)
 Players.PlayerRemoving:Connect(function(player)
 	throwCooldown[player.UserId] = nil
 	dodgeCooldown[player.UserId] = nil
+	sessionStart[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.5.0 server up: English UI, persistence, XP, coins, daily quests")
+print("[RagdollDodgeball] v0.6.0 server up: FTUE prompts, server-side funnel, session analytics")
