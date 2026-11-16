@@ -1,5 +1,5 @@
--- Bootstrap v0.3.0: попадания приходят из sweep-сигнала BallService, не из Touched.
--- Откат считает RagdollService по модели Impact. Физика мяча игрока не толкает.
+-- Bootstrap v0.4.0: ArenaService поднимается ПЕРЕД BallService и MatchService,
+-- чтобы маркеры спавнов и трибун существовали до того, как их прочитают.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -17,6 +17,7 @@ Collision.Setup()
 Resolve.Report(ServerScriptService, "Bootstrap")
 
 local AntiCheat = Resolve.Require(ServerScriptService, "AntiCheat")
+local ArenaService = Resolve.Require(ServerScriptService, "ArenaService")
 local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
@@ -27,7 +28,10 @@ local CatchService = Resolve.Require(ServerScriptService, "CatchService")
 Net.Init()
 CatchService.Init(MatchService, AbilityService)
 
-local ORDER = { AntiCheat, RagdollService, BallService, RoundService, AbilityService, MatchService, CatchService }
+local ORDER = {
+	AntiCheat, ArenaService, RagdollService, BallService,
+	RoundService, AbilityService, MatchService, CatchService,
+}
 
 for _, service in ipairs(ORDER) do
 	if service.Init and service ~= CatchService then service.Init() end
@@ -129,7 +133,6 @@ Net.On("PingRequest", function(player: Player, position: any)
 	Net.FireAll("FXEvent", "ping", position, player.UserId)
 end)
 
--- Единая точка правил попадания
 BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model, speed: number)
 	if character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
 
@@ -164,4 +167,4 @@ Players.PlayerRemoving:Connect(function(player)
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.3.0 запущен: контролируемый откат, перенос без физики, sweep-попадания")
+print("[RagdollDodgeball] v0.4.0 запущен: арена, импакт, sudden death")
