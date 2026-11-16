@@ -1,5 +1,4 @@
--- Bootstrap v0.7.0: aim assist на сервере, watchdog движения, бюджет remote,
--- сессия считается без посекундной репликации атрибута.
+-- Bootstrap v0.8.0: подключён TeamIdentityService, DisplayName для игроков.
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -24,6 +23,7 @@ local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 local AbilityService = Resolve.Require(ServerScriptService, "AbilityService")
+local TeamIdentityService = Resolve.Require(ServerScriptService, "TeamIdentityService")
 local AnalyticsService = Resolve.Require(ServerScriptService, "AnalyticsService")
 local DataService = Resolve.Require(ServerScriptService, "DataService")
 local ProgressionService = Resolve.Require(ServerScriptService, "ProgressionService")
@@ -36,7 +36,8 @@ CatchService.Init(MatchService, AbilityService)
 
 local ORDER = {
 	AntiCheat, ArenaService, RagdollService, BallService, RoundService, AbilityService,
-	AnalyticsService, DataService, ProgressionService, FtueService, MatchService, CatchService,
+	TeamIdentityService, AnalyticsService, DataService, ProgressionService,
+	FtueService, MatchService, CatchService,
 }
 
 for _, service in ipairs(ORDER) do
@@ -58,7 +59,15 @@ local function onCharacter(character: Model)
 	character:SetAttribute("Benched", false)
 	character:SetAttribute("Ragdolled", false)
 	character:SetAttribute("Carrying", false)
+	character:SetAttribute("IsBot", false)
+
+	local owner = Players:GetPlayerFromCharacter(character)
+	if owner then
+		character:SetAttribute("DisplayName", owner.DisplayName)
+	end
+
 	RagdollService.Prepare(character)
+	TeamIdentityService.Refresh(character)
 end
 
 local function onPlayer(player: Player)
@@ -243,4 +252,4 @@ Players.PlayerRemoving:Connect(function(player)
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.7.0 server up: aim assist, movement watchdog, remote budget")
+print("[RagdollDodgeball] v0.8.0 server up: team identity, varied bots, arena shadows off")

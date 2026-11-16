@@ -1,5 +1,4 @@
--- Strings v0.6.0: единственное место, где живут игроцкие тексты.
--- Английский основной и принудительный. Добавлены строки FTUE.
+-- Strings v0.8.0: добавлены метки идентификации команд.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CFG = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
@@ -33,6 +32,11 @@ local DATA = {
 		["hud.dodge"] = "DODGE",
 		["hud.ult"] = "ULT",
 		["hud.benched"] = "BENCHED — NEXT ROUND SOON",
+		["hud.yourTeam"] = "YOUR TEAM: %s",
+
+		["tag.you"] = "YOU",
+		["tag.out"] = "OUT",
+		["tag.bot"] = "BOT",
 
 		["quest.ko"] = "Knock out %d opponents",
 		["quest.catch"] = "Catch %d balls",

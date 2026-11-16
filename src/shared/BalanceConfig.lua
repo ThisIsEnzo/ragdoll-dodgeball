@@ -1,7 +1,25 @@
--- BalanceConfig v0.7.0: добавлены Mobile, AimAssist, Perf, Security.
+-- BalanceConfig v0.8.0: палитра команд, читаемость, более щедрое окно ловли под высокий пинг.
 
 return {
 	Locale = { Default = "en", Force = "en" },
+
+	Teams = {
+		[1] = { name = "BLUE", color = Color3.fromRGB(46, 155, 255), dark = Color3.fromRGB(22, 78, 148) },
+		[2] = { name = "RED", color = Color3.fromRGB(255, 70, 60), dark = Color3.fromRGB(148, 34, 28) },
+		Self = Color3.fromRGB(124, 255, 79),
+		Neutral = Color3.fromRGB(150, 160, 190),
+	},
+
+	Readability = {
+		Highlights = true,
+		FillTransparency = 0.9,
+		OutlineTransparency = 0,
+		NameTags = true,
+		TagMaxDistance = 150,
+		SelfArrow = true,
+		BotNames = { "Rex", "Nova", "Bolt", "Pip", "Zed", "Milo", "Kira", "Juno", "Axel", "Vex" },
+		BotScaleJitter = 0.06,
+	},
 
 	Mobile = {
 		CompactWidth = 760,
@@ -15,38 +33,24 @@ return {
 	},
 
 	AimAssist = {
-		Enabled = true,
-		DesktopAngleDeg = 5,
-		MobileAngleDeg = 11,
-		Strength = 0.55,
-		MaxDistance = 75,
-		RequireLineOfSight = true,
+		Enabled = true, DesktopAngleDeg = 5, MobileAngleDeg = 11,
+		Strength = 0.55, MaxDistance = 75, RequireLineOfSight = true,
 	},
 
 	Perf = {
-		TargetFps = 60,
-		MinFps = 30,
-		StreamingMinRadius = 64,
-		StreamingTargetRadius = 256,
+		TargetFps = 60, MinFps = 30,
+		StreamingMinRadius = 64, StreamingTargetRadius = 256,
 		MaxArenaParts = 3000,
-		RagdollSettleSpeed = 1.2,
-		RagdollSettleSpin = 0.6,
-		ProfilePushHz = 5,
-		ShadowCasters = false,
+		RagdollSettleSpeed = 1.2, RagdollSettleSpin = 0.6,
+		ProfilePushHz = 5, ShadowCasters = false,
 	},
 
 	Security = {
-		MovementSampleHz = 5,
-		SpeedTolerance = 1.5,
-		SpeedSlack = 10,
-		TeleportDelta = 60,
-		SustainedViolations = 3,
-		WalkSpeedTolerance = 1.35,
-		HumanoidCheckSeconds = 2,
-		ViolationDecaySeconds = 5,
-		KickThreshold = 15,
-		RemoteBudgetPerSecond = 30,
-		PingMaxDistance = 120,
+		MovementSampleHz = 5, SpeedTolerance = 1.5, SpeedSlack = 10,
+		TeleportDelta = 60, SustainedViolations = 3,
+		WalkSpeedTolerance = 1.35, HumanoidCheckSeconds = 2,
+		ViolationDecaySeconds = 5, KickThreshold = 15,
+		RemoteBudgetPerSecond = 30, PingMaxDistance = 120,
 	},
 
 	FTUE = {
@@ -75,8 +79,8 @@ return {
 	Carry = { ShowGlow = true, GlowBrightness = 0.55, GlowRange = 7 },
 
 	Catch = {
-		Window = 0.35, WhiffCooldown = 1.2, Stagger = 0.4,
-		Distance = 4.0, ConeDeg = 90, MaxSpeed = 110,
+		Window = 0.42, WhiffCooldown = 1.2, Stagger = 0.4,
+		Distance = 4.5, ConeDeg = 100, MaxSpeed = 110,
 	},
 
 	Ball = {
@@ -89,7 +93,7 @@ return {
 	Impact = {
 		SpeedToImpulse = 0.28, MinLaunch = 14, MaxLaunch = 42,
 		VerticalScale = 0.35, MaxVertical = 12, Spin = 8,
-		DragPerFrame = 0.90, StopSpeed = 2, CatchGrace = 0.15,
+		DragPerFrame = 0.90, StopSpeed = 2, CatchGrace = 0.22,
 		HitSlowdown = 0.85, CatchKnockback = 26,
 	},
 
