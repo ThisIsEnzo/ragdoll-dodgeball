@@ -1,6 +1,5 @@
--- ArenaService: процедурный спортзал. Стены держат мячи, трибуны для выбитых,
--- разметка и маркеры спавнов. В sudden death стены сдвигаются внутрь и краснеют.
--- Если в Workspace уже есть своя Arena — не перестраиваем, уважаем ручной билд.
+-- ArenaService v0.8.0: CastShadow выключается при постройке.
+-- PerfSetup в Edit-режиме не мог этого сделать: арена создаётся в рантайме, после Edit.
 
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -27,6 +26,7 @@ local function part(name: string, size: Vector3, position: Vector3, color: Color
 	p.Anchored = true
 	p.CanCollide = true
 	p.CanTouch = false
+	p.CastShadow = false
 	p.Color = color
 	p.Material = Enum.Material.SmoothPlastic
 	p.TopSurface = Enum.SurfaceType.Smooth
@@ -45,6 +45,7 @@ local function marker(name: string, position: Vector3, parent: Instance)
 	p.CanCollide = false
 	p.CanTouch = false
 	p.CanQuery = false
+	p.CastShadow = false
 	p.Transparency = 1
 	p.Parent = parent
 	return p
@@ -60,13 +61,20 @@ local function build()
 	local floor = part("Floor", Vector3.new(A.Width, 1, A.Depth), Vector3.new(0, 0.5, 0), A.FloorColor, arena)
 	floor.Material = Enum.Material.Wood
 
+	-- Разметка в цветах команд: сразу видно, чья половина
+	local halfD = A.Depth * 0.5
+	part("BlueHalfLine", Vector3.new(A.Width, 0.06, 1.2),
+		Vector3.new(0, 1.04, -(halfD - 2)), CFG.Teams[1].color, arena).CanCollide = false
+	part("RedHalfLine", Vector3.new(A.Width, 0.06, 1.2),
+		Vector3.new(0, 1.04, halfD - 2), CFG.Teams[2].color, arena).CanCollide = false
+
 	part("CenterLine", Vector3.new(A.Width, 0.05, 0.6), Vector3.new(0, 1.03, 0), A.LineColor, arena).CanCollide = false
 	local circle = part("CenterCircle", Vector3.new(14, 0.05, 14), Vector3.new(0, 1.02, 0), A.LineColor, arena)
 	circle.Shape = Enum.PartType.Cylinder
 	circle.Orientation = Vector3.new(0, 0, 90)
 	circle.CanCollide = false
 
-	local halfW, halfD = A.Width * 0.5, A.Depth * 0.5
+	local halfW = A.Width * 0.5
 	local t, h = A.WallThickness, A.WallHeight
 
 	local specs = {
@@ -89,6 +97,7 @@ local function build()
 	ceiling.Transparency = 1
 
 	for team = 1, 2 do
+		local entry = CFG.Teams[team]
 		local folder = Instance.new("Folder")
 		folder.Name = "Team" .. team .. "Spawns"
 		folder.Parent = arena
@@ -99,7 +108,7 @@ local function build()
 
 		local benchX = if team == 1 then -(halfW + 9) else (halfW + 9)
 		local bench = part("BenchPlatform" .. team, Vector3.new(14, 1, 24),
-			Vector3.new(benchX, 2, 0), A.BenchColor, arena)
+			Vector3.new(benchX, 2, 0), entry.dark, arena)
 		bench.Material = Enum.Material.Concrete
 		marker("Bench" .. team, Vector3.new(benchX, 3.5, 0), arena)
 	end
@@ -114,26 +123,25 @@ local function build()
 		end
 	end
 
-	print("[Arena] Спортзал построен: " .. A.Width .. "x" .. A.Depth .. ", стены и потолок на месте")
+	print(string.format("[Arena] Court built %dx%d, shadows off, team halves marked", A.Width, A.Depth))
 end
 
 local function adoptExisting(arena: Instance)
-	for _, child in ipairs(arena:GetChildren()) do
-		if child:IsA("BasePart") and string.find(child.Name, "^Wall") then
-			table.insert(walls, { part = child, basePos = child.Position, baseSize = child.Size })
+	for _, child in ipairs(arena:GetDescendants()) do
+		if child:IsA("BasePart") then
+			child.CastShadow = false
+			if string.find(child.Name, "^Wall") then
+				table.insert(walls, { part = child, basePos = child.Position, baseSize = child.Size })
+			end
 		end
 	end
-	print("[Arena] Найдена своя Arena, использую её. Стен для sudden death: " .. #walls)
+	print("[Arena] Existing Arena adopted, shadows off. Walls for sudden death: " .. #walls)
 end
 
 function ArenaService.Init()
 	Collision.Setup()
 	local existing = workspace:FindFirstChild("Arena")
-	if existing then
-		adoptExisting(existing)
-	else
-		build()
-	end
+	if existing then adoptExisting(existing) else build() end
 end
 
 function ArenaService.Start()
