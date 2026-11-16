@@ -1,11 +1,15 @@
--- HUDController: минимальный боевой HUD. Счёт, таймер, заряд, Hype, кнопки, экран результата.
+-- HUDController v0.2.1: боевой HUD. InputController берётся через резолвер.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Net = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Net"))
-local InputController = require(script.Parent:WaitForChild("InputController"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Net = require(Shared:WaitForChild("Net"))
+local Resolve = require(Shared:WaitForChild("Resolve"))
+
+local PlayerScripts = Players.LocalPlayer:WaitForChild("PlayerScripts")
+local InputController = Resolve.Require(PlayerScripts, "InputController")
 
 local HUDController = {}
 local gui, scoreLabel, stateLabel, chargeFill, hypeFill, resultFrame, resultLabel
