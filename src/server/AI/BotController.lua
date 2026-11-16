@@ -152,14 +152,17 @@ local function incomingThreat(root: BasePart): BasePart?
 	return nil
 end
 
-local function hasLineOfSight(from: Vector3, to: Vector3, exclude: { Instance }): boolean
+local function hasLineOfSight(from: Vector3, to: Vector3, exclude: { Instance }, target: Model): boolean
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = exclude
 	params.IgnoreWater = true
 	local delta = to - from
 	local hit = workspace:Raycast(from, delta, params)
-	return hit == nil
+	-- луч заканчивается внутри цели, поэтому попадание по самой цели это успех.
+	-- Раньше return hit == nil всегда давал false, и боты никогда не бросали.
+	if hit == nil then return true end
+	return hit.Instance:IsDescendantOf(target)
 end
 
 -- Низкая дуга: theta = 0.5 * asin(g * R / v^2)
@@ -294,7 +297,7 @@ local function think(bot: Model)
 					local exclude = { bot }
 					if ballsFolder then table.insert(exclude, ballsFolder) end
 
-					if hasLineOfSight(origin, target, exclude) then
+					if hasLineOfSight(origin, target, exclude, enemy) then
 						local charge = 0.55 + math.random() * 0.35
 						local t = math.clamp((charge - CFG.Throw.ChargeMin) / (CFG.Throw.ChargeMax - CFG.Throw.ChargeMin), 0, 1)
 						local speed = CFG.Throw.SpeedMin + (CFG.Throw.SpeedMax - CFG.Throw.SpeedMin) * t
