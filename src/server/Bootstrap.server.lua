@@ -1,5 +1,5 @@
--- Bootstrap v0.4.0: ArenaService поднимается ПЕРЕД BallService и MatchService,
--- чтобы маркеры спавнов и трибун существовали до того, как их прочитают.
+-- Bootstrap v0.4.1: приёма позиции релиза от клиента с проверкой границы.
+-- Всё остальное как в v0.4.0: арена перед спавнами, попадания из sweep-сигнала.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -51,6 +51,7 @@ local function onCharacter(character: Model)
 	humanoid.JumpPower = CFG.Movement.JumpPower
 	character:SetAttribute("Benched", false)
 	character:SetAttribute("Ragdolled", false)
+	character:SetAttribute("Carrying", false)
 	RagdollService.Prepare(character)
 end
 
@@ -63,7 +64,7 @@ end
 Players.PlayerAdded:Connect(onPlayer)
 for _, player in ipairs(Players:GetPlayers()) do onPlayer(player) end
 
-Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any)
+Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, clientOrigin: any)
 	if not AntiCheat.Allow(player, "Throw") then return end
 	if not AntiCheat.ValidCharge(charge) or not AntiCheat.ValidDirection(aimDir) then return end
 
@@ -75,10 +76,12 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any)
 	local ball = BallService.GetHeld(character)
 	if not ball then return end
 
+	local origin = if typeof(clientOrigin) == "Vector3" then clientOrigin else nil
+
 	local cannonMul, uncatchable = AbilityService.ConsumeCannon(player)
 	local suddenMul = if RoundService.IsSuddenDeath() then CFG.Round.SuddenDeathSpeedMul else 1
 
-	if BallService.Throw(character, ball, aimDir, charge, cannonMul * suddenMul) then
+	if BallService.Throw(character, ball, aimDir, charge, cannonMul * suddenMul, origin) then
 		throwCooldown[player.UserId] = now + CFG.Throw.Cooldown
 		if uncatchable then ball:SetAttribute("Uncatchable", true) end
 		Net.FireAll("FXEvent", "throw", ball, player.UserId)
@@ -167,4 +170,4 @@ Players.PlayerRemoving:Connect(function(player)
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.4.0 запущен: арена, импакт, sudden death")
+print("[RagdollDodgeball] v0.4.1 запущен: перенос без репликации, lag-comp броска")
