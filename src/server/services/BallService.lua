@@ -340,9 +340,16 @@ local function tryPickup(ball: BasePart, speed: number)
 		if character:IsA("Model") and isActorAlive(character) and not heldBy[character] then
 			if not (record and record.actor == character and os.clock() - record.at < 0.4) then
 				local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if root and (ball.Position - root.Position).Magnitude <= CFG.Throw.PickupRadius then
-					attach(character, ball)
-					return
+				if root then
+					-- цилиндр вместо сферы: мяч на полу y=2.1, корень на бедре y=4,
+					-- сферическая дистанция не доставала до мяча на линии центра
+					local offset = ball.Position - root.Position
+					local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
+					if flat <= CFG.Throw.PickupRadius
+						and math.abs(offset.Y) <= CFG.Ball.PickupVerticalLimit then
+						attach(character, ball)
+						return
+					end
 				end
 			end
 		end
