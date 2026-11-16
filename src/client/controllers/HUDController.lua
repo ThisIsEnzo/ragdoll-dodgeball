@@ -1,6 +1,6 @@
--- HUDController v0.5.0: все игроцкие строки через Strings (EN forced).
--- Добавлены: уровень с XP-полосой, монеты, панель дейли-квестов, попап LEVEL UP,
--- предупреждение PROGRESS NOT SAVED в memory-mode.
+-- HUDController v0.7.0: адаптивная раскладка.
+-- Компактный режим: кнопки 88-96 px сеткой 2x2 справа, hype убран с джойстика наверх,
+-- квесты свёрнуты в кнопку-переключатель, всё внутри device safe area.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,18 +18,18 @@ local InputController = Resolve.Require(PlayerScripts, "InputController")
 
 local HUDController = {}
 
-local gui, scoreLabel, stateLabel, chargeFill, hypeFill, resultFrame, resultLabel
-local levelLabel, xpFill, coinsLabel, streakLabel, savedWarning
-local questRows = {}
+local gui, scoreLabel, stateLabel, chargeFill, hypeFill, hypeTrack
+local resultFrame, resultLabel, levelLabel, xpFill, coinsLabel, streakLabel, savedWarning
+local profilePanel, questToggle, questPanel
 local levelPopup, levelPopupTitle, levelPopupSub
+local throwBtn, catchBtn, dodgeBtn, ultBtn
+local questRows = {}
+local compact = false
+local questsOpen = false
 
 local STATE_KEYS = {
-	Warmup = "hud.warmup",
-	Live = "hud.live",
-	SuddenDeath = "hud.sudden",
-	RoundEnd = "hud.roundEnd",
-	MatchEnd = "hud.matchEnd",
-	Idle = "hud.idle",
+	Warmup = "hud.warmup", Live = "hud.live", SuddenDeath = "hud.sudden",
+	RoundEnd = "hud.roundEnd", MatchEnd = "hud.matchEnd", Idle = "hud.idle",
 }
 
 local function make(class, props, parent)
@@ -43,41 +43,98 @@ local function corner(parent, radius)
 	make("UICorner", { CornerRadius = UDim.new(0, radius) }, parent)
 end
 
-local function button(text, position, color, callback)
+local function actionButton(text, color, callback)
 	local btn = make("TextButton", {
-		Size = UDim2.fromOffset(96, 62), Position = position, AnchorPoint = Vector2.new(1, 1),
 		BackgroundColor3 = color, TextColor3 = Color3.fromRGB(10, 14, 26),
-		Font = Enum.Font.FredokaOne, TextSize = 15, Text = text,
+		Font = Enum.Font.FredokaOne, TextSize = 15, Text = text, AutoButtonColor = true,
+		AnchorPoint = Vector2.new(1, 1),
 	}, gui)
-	corner(btn, 12)
+	corner(btn, 14)
 	btn.Activated:Connect(callback)
 	return btn
 end
 
+local function layout()
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	compact = viewport.X < CFG.Mobile.CompactWidth
+
+	local action = if compact then CFG.Mobile.ActionButton else CFG.Mobile.DesktopAction
+	local throwSize = if compact then CFG.Mobile.ThrowButton else CFG.Mobile.DesktopThrow
+	local gap = 8
+	local margin = 14
+
+	throwBtn.Size = UDim2.fromOffset(throwSize.w, throwSize.h)
+	throwBtn.Position = UDim2.new(1, -margin, 1, -margin)
+	throwBtn.TextSize = if compact then 18 else 16
+
+	catchBtn.Size = UDim2.fromOffset(action.w, action.h)
+	catchBtn.Position = UDim2.new(1, -(margin + throwSize.w + gap), 1, -margin)
+
+	dodgeBtn.Size = UDim2.fromOffset(action.w, action.h)
+	ultBtn.Size = UDim2.fromOffset(action.w, action.h)
+
+	if compact then
+		-- сетка 2x2 над THROW: dodge слева сверху, ult справа сверху
+		dodgeBtn.Position = UDim2.new(1, -(margin + throwSize.w + gap), 1, -(margin + action.h + gap))
+		ultBtn.Position = UDim2.new(1, -margin, 1, -(margin + action.h + gap))
+		ultBtn.Size = UDim2.fromOffset(throwSize.w, action.h)
+		catchBtn.TextSize = 15
+		dodgeBtn.TextSize = 15
+		ultBtn.TextSize = 15
+	else
+		dodgeBtn.Position = UDim2.new(1, -(margin + throwSize.w + gap + action.w + gap), 1, -margin)
+		ultBtn.Position = UDim2.new(1, -(margin + throwSize.w + gap + (action.w + gap) * 2), 1, -margin)
+	end
+
+	-- hype: на компакте уходит наверх под счёт, чтобы не лежать на джойстике
+	if compact then
+		hypeTrack.Size = UDim2.fromOffset(180, 10)
+		hypeTrack.Position = UDim2.new(0.5, 0, 0, 76)
+		hypeTrack.AnchorPoint = Vector2.new(0.5, 0)
+	else
+		hypeTrack.Size = UDim2.fromOffset(160, 12)
+		hypeTrack.Position = UDim2.new(0, 16, 1, -26)
+		hypeTrack.AnchorPoint = Vector2.new(0, 0)
+	end
+
+	local profileWidth = if compact then 190 else 232
+	profilePanel.Size = UDim2.fromOffset(profileWidth, 62)
+	xpFill.Parent.Size = UDim2.fromOffset(profileWidth - 20, 8)
+	coinsLabel.Size = UDim2.fromOffset(profileWidth - 102, 24)
+	streakLabel.Size = UDim2.fromOffset(profileWidth - 20, 14)
+
+	questToggle.Visible = compact
+	questPanel.Visible = (not compact) or questsOpen
+	questToggle.Position = UDim2.fromOffset(16, 82)
+	questPanel.Position = UDim2.fromOffset(16, if compact then 116 else 100)
+
+	savedWarning.Position = UDim2.fromOffset(16, if compact then 112 else 78)
+end
+
 local function buildProfile()
-	local panel = make("Frame", {
-		Size = UDim2.fromOffset(232, 62), Position = UDim2.fromOffset(16, 12),
+	profilePanel = make("Frame", {
+		Position = UDim2.fromOffset(16, 12),
 		BackgroundColor3 = Color3.fromRGB(12, 18, 38), BackgroundTransparency = 0.15, BorderSizePixel = 0,
 	}, gui)
-	corner(panel, 12)
+	corner(profilePanel, 12)
 
 	levelLabel = make("TextLabel", {
 		Size = UDim2.fromOffset(80, 24), Position = UDim2.fromOffset(10, 6),
 		BackgroundTransparency = 1, Text = Strings.Get("hud.level", 1),
 		TextColor3 = Color3.fromRGB(124, 255, 79), Font = Enum.Font.FredokaOne,
 		TextSize = 18, TextXAlignment = Enum.TextXAlignment.Left,
-	}, panel)
+	}, profilePanel)
 
 	coinsLabel = make("TextLabel", {
-		Size = UDim2.fromOffset(130, 24), Position = UDim2.fromOffset(92, 6),
-		BackgroundTransparency = 1, Text = "0", TextColor3 = Color3.fromRGB(255, 197, 61),
-		Font = Enum.Font.FredokaOne, TextSize = 18, TextXAlignment = Enum.TextXAlignment.Right,
-	}, panel)
+		Position = UDim2.fromOffset(92, 6), BackgroundTransparency = 1, Text = "0",
+		TextColor3 = Color3.fromRGB(255, 197, 61), Font = Enum.Font.FredokaOne,
+		TextSize = 18, TextXAlignment = Enum.TextXAlignment.Right,
+	}, profilePanel)
 
 	local track = make("Frame", {
-		Size = UDim2.fromOffset(212, 8), Position = UDim2.fromOffset(10, 34),
-		BackgroundColor3 = Color3.fromRGB(10, 14, 26), BorderSizePixel = 0,
-	}, panel)
+		Position = UDim2.fromOffset(10, 34), BackgroundColor3 = Color3.fromRGB(10, 14, 26), BorderSizePixel = 0,
+	}, profilePanel)
 	corner(track, 4)
 	xpFill = make("Frame", {
 		Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(124, 255, 79), BorderSizePixel = 0,
@@ -85,33 +142,48 @@ local function buildProfile()
 	corner(xpFill, 4)
 
 	streakLabel = make("TextLabel", {
-		Size = UDim2.fromOffset(212, 14), Position = UDim2.fromOffset(10, 44),
-		BackgroundTransparency = 1, Text = "", TextColor3 = Color3.fromRGB(143, 160, 201),
-		Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-	}, panel)
+		Position = UDim2.fromOffset(10, 44), BackgroundTransparency = 1, Text = "",
+		TextColor3 = Color3.fromRGB(143, 160, 201), Font = Enum.Font.GothamBold,
+		TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+	}, profilePanel)
 
 	savedWarning = make("TextLabel", {
-		Size = UDim2.fromOffset(232, 16), Position = UDim2.fromOffset(16, 78),
-		BackgroundTransparency = 1, Text = Strings.Get("hud.notSaved"),
-		TextColor3 = Color3.fromRGB(255, 120, 90), Font = Enum.Font.GothamBold,
-		TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, Visible = false,
+		Size = UDim2.fromOffset(232, 16), BackgroundTransparency = 1,
+		Text = Strings.Get("hud.notSaved"), TextColor3 = Color3.fromRGB(255, 120, 90),
+		Font = Enum.Font.GothamBold, TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left, Visible = false,
 	}, gui)
 end
 
 local function buildQuests()
+	questToggle = make("TextButton", {
+		Size = UDim2.fromOffset(190, 28), BackgroundColor3 = Color3.fromRGB(18, 26, 52),
+		TextColor3 = Color3.fromRGB(255, 197, 61), Font = Enum.Font.FredokaOne, TextSize = 12,
+		Text = Strings.Get("hud.quests"), Visible = false,
+	}, gui)
+	corner(questToggle, 8)
+	questToggle.Activated:Connect(function()
+		questsOpen = not questsOpen
+		layout()
+	end)
+
+	questPanel = make("Frame", {
+		Size = UDim2.fromOffset(232, 170), BackgroundTransparency = 1,
+	}, gui)
+
 	local header = make("TextLabel", {
-		Size = UDim2.fromOffset(232, 16), Position = UDim2.fromOffset(16, 100),
+		Size = UDim2.fromOffset(232, 16), Position = UDim2.fromOffset(0, 0),
 		BackgroundTransparency = 1, Text = Strings.Get("hud.quests"),
 		TextColor3 = Color3.fromRGB(143, 160, 201), Font = Enum.Font.GothamBold,
 		TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-	}, gui)
+	}, questPanel)
 	header.TextTransparency = 0.15
 
 	for index = 1, CFG.Progression.QuestSlots do
 		local row = make("Frame", {
-			Size = UDim2.fromOffset(232, 46), Position = UDim2.fromOffset(16, 118 + (index - 1) * 52),
-			BackgroundColor3 = Color3.fromRGB(12, 18, 38), BackgroundTransparency = 0.25, BorderSizePixel = 0,
-		}, gui)
+			Size = UDim2.fromOffset(232, 46), Position = UDim2.fromOffset(0, 18 + (index - 1) * 52),
+			BackgroundColor3 = Color3.fromRGB(12, 18, 38), BackgroundTransparency = 0.2, BorderSizePixel = 0,
+		}, questPanel)
 		corner(row, 10)
 
 		local label = make("TextLabel", {
@@ -138,13 +210,11 @@ local function buildQuests()
 		}, row)
 
 		local claim = make("TextButton", {
-			Size = UDim2.fromOffset(62, 30), Position = UDim2.fromOffset(163, 8),
+			Size = UDim2.fromOffset(62, 34), Position = UDim2.fromOffset(161, 6),
 			BackgroundColor3 = Color3.fromRGB(46, 60, 100), TextColor3 = Color3.fromRGB(143, 160, 201),
-			Font = Enum.Font.FredokaOne, TextSize = 12, Text = Strings.Get("hud.claim"),
-			AutoButtonColor = false,
+			Font = Enum.Font.FredokaOne, TextSize = 12, Text = Strings.Get("hud.claim"), AutoButtonColor = true,
 		}, row)
 		corner(claim, 8)
-
 		claim.Activated:Connect(function()
 			local remote = Net.Get("QuestClaim")
 			if remote then remote:FireServer(index) end
@@ -186,10 +256,11 @@ function HUDController.Init()
 
 	gui = make("ScreenGui", {
 		Name = "DodgeballHUD", ResetOnSpawn = false, IgnoreGuiInset = true,
+		ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets,
 	}, Players.LocalPlayer:WaitForChild("PlayerGui"))
 
 	local top = make("Frame", {
-		Size = UDim2.fromOffset(260, 58), Position = UDim2.new(0.5, 0, 0, 12),
+		Size = UDim2.fromOffset(240, 58), Position = UDim2.new(0.5, 0, 0, 12),
 		AnchorPoint = Vector2.new(0.5, 0), BackgroundColor3 = Color3.fromRGB(12, 18, 38),
 		BackgroundTransparency = 0.15, BorderSizePixel = 0,
 	}, gui)
@@ -204,11 +275,11 @@ function HUDController.Init()
 	stateLabel = make("TextLabel", {
 		Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 32),
 		BackgroundTransparency = 1, Text = Strings.Get("hud.waiting"),
-		TextColor3 = Color3.fromRGB(143, 160, 201), Font = Enum.Font.GothamBold, TextSize = 13,
+		TextColor3 = Color3.fromRGB(143, 160, 201), Font = Enum.Font.GothamBold, TextSize = 12,
 	}, top)
 
 	local chargeTrack = make("Frame", {
-		Size = UDim2.fromOffset(220, 12), Position = UDim2.new(0.5, 0, 1, -26),
+		Size = UDim2.fromOffset(200, 12), Position = UDim2.new(0.5, 0, 1, -26),
 		AnchorPoint = Vector2.new(0.5, 1), BackgroundColor3 = Color3.fromRGB(10, 14, 26), BorderSizePixel = 0,
 	}, gui)
 	corner(chargeTrack, 6)
@@ -217,8 +288,7 @@ function HUDController.Init()
 	}, chargeTrack)
 	corner(chargeFill, 6)
 
-	local hypeTrack = make("Frame", {
-		Size = UDim2.fromOffset(160, 12), Position = UDim2.new(0, 16, 1, -26),
+	hypeTrack = make("Frame", {
 		BackgroundColor3 = Color3.fromRGB(10, 14, 26), BorderSizePixel = 0,
 	}, gui)
 	corner(hypeTrack, 6)
@@ -227,14 +297,17 @@ function HUDController.Init()
 	}, hypeTrack)
 	corner(hypeFill, 6)
 
-	button(Strings.Get("hud.catch"), UDim2.new(1, -16, 1, -16), Color3.fromRGB(124, 255, 79), InputController.Catch)
-	button(Strings.Get("hud.dodge"), UDim2.new(1, -124, 1, -16), Color3.fromRGB(46, 155, 255), InputController.Dodge)
-	button(Strings.Get("hud.ult"), UDim2.new(1, -232, 1, -16), Color3.fromRGB(255, 79, 216), InputController.Ult)
+	catchBtn = actionButton(Strings.Get("hud.catch"), Color3.fromRGB(124, 255, 79), InputController.Catch)
+	dodgeBtn = actionButton(Strings.Get("hud.dodge"), Color3.fromRGB(46, 155, 255), InputController.Dodge)
+	ultBtn = actionButton(Strings.Get("hud.ult"), Color3.fromRGB(255, 79, 216), InputController.Ult)
+	throwBtn = actionButton(Strings.Get("hud.throw"), Color3.fromRGB(255, 90, 77), function() end)
 
-	local throwBtn = button(Strings.Get("hud.throw"), UDim2.new(1, -16, 1, -92), Color3.fromRGB(255, 90, 77), function() end)
-	throwBtn.Size = UDim2.fromOffset(140, 72)
-	throwBtn.MouseButton1Down:Connect(InputController.BeginCharge)
-	throwBtn.MouseButton1Up:Connect(InputController.ReleaseCharge)
+	throwBtn.MouseButton1Down:Connect(function()
+		InputController.BeginCharge()
+	end)
+	throwBtn.MouseButton1Up:Connect(function()
+		InputController.ReleaseCharge()
+	end)
 
 	resultFrame = make("Frame", {
 		Size = UDim2.fromOffset(300, 150), Position = UDim2.new(0.5, 0, 0.5, 0),
@@ -250,7 +323,7 @@ function HUDController.Init()
 	}, resultFrame)
 
 	local rematch = make("TextButton", {
-		Size = UDim2.fromOffset(200, 48), Position = UDim2.new(0.5, 0, 1, -20),
+		Size = UDim2.fromOffset(200, 52), Position = UDim2.new(0.5, 0, 1, -18),
 		AnchorPoint = Vector2.new(0.5, 1), BackgroundColor3 = Color3.fromRGB(255, 197, 61),
 		Text = Strings.Get("hud.rematch"), TextColor3 = Color3.fromRGB(20, 14, 0),
 		Font = Enum.Font.FredokaOne, TextSize = 18,
@@ -264,11 +337,24 @@ function HUDController.Init()
 	buildProfile()
 	buildQuests()
 	buildLevelPopup()
+	layout()
 end
 
 function HUDController.Start()
 	RunService.RenderStepped:Connect(function()
 		chargeFill.Size = UDim2.new(InputController.GetCharge(), 0, 1, 0)
+	end)
+
+	local camera = workspace.CurrentCamera
+	if camera then
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(layout)
+	end
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(layout)
+			layout()
+		end
 	end)
 
 	local matchState = Net.Get("MatchState")
@@ -315,6 +401,7 @@ function HUDController.Start()
 	if questState then
 		questState.OnClientEvent:Connect(function(list)
 			if typeof(list) ~= "table" then return end
+			local claimable = 0
 			for index, row in ipairs(questRows) do
 				local quest = list[index]
 				if not quest then
@@ -332,6 +419,7 @@ function HUDController.Start()
 						row.claim.TextColor3 = Color3.fromRGB(124, 255, 79)
 						row.fill.BackgroundColor3 = Color3.fromRGB(124, 255, 79)
 					elseif ratio >= 1 then
+						claimable += 1
 						row.claim.Text = Strings.Get("hud.claim")
 						row.claim.BackgroundColor3 = Color3.fromRGB(124, 255, 79)
 						row.claim.TextColor3 = Color3.fromRGB(8, 20, 10)
@@ -344,6 +432,7 @@ function HUDController.Start()
 					end
 				end
 			end
+			questToggle.Text = Strings.Get("hud.quests") .. if claimable > 0 then ("  (" .. claimable .. ")") else ""
 		end)
 	end
 
@@ -352,8 +441,7 @@ function HUDController.Start()
 		levelUp.OnClientEvent:Connect(function(level, unlock, coins)
 			levelPopupTitle.Text = Strings.Get("hud.levelUp", level)
 			levelPopupSub.Text = if unlock
-				then Strings.Get("hud.unlocked", unlock)
-				else Strings.Get("hud.coinsGain", coins or 0)
+				then Strings.Get("hud.unlocked", unlock) else Strings.Get("hud.coinsGain", coins or 0)
 			levelPopup.Visible = true
 			local scale = levelPopup:FindFirstChildOfClass("UIScale")
 			if scale then
