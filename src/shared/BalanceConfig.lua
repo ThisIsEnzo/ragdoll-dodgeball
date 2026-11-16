@@ -1,7 +1,4 @@
--- BalanceConfig v0.9.0: баллистика мяча и честный rate limit.
--- Ball.GravityScale — мяч летит по своей гравитации, иначе дальность 17 studs при разнице команд 44.
--- Throw.LoftDeg / PitchInfluence — бросок не уходит в пол от наклона камеры.
--- Security.RateLimitStrikes = false — превышение лимита не считается читом.
+-- BalanceConfig v0.10.0: секция BotAI (половины, коридоры, заявки) и ловля как стойка.
 
 return {
 	Locale = { Default = "en", Force = "en" },
@@ -18,6 +15,24 @@ return {
 		NameTags = true, TagMaxDistance = 150, SelfArrow = true,
 		BotNames = { "Rex", "Nova", "Bolt", "Pip", "Zed", "Milo", "Kira", "Juno", "Axel", "Vex" },
 		BotScaleJitter = 0.06,
+	},
+
+	BotAI = {
+		TickSeconds = 0.15,
+		CenterMargin = 3,
+		CenterReach = 6,
+		EdgeMargin = 4,
+		LaneSpacing = 20,
+		AnchorDepth = 0.55,
+		ThrowLineOffset = 6,
+		ClaimSeconds = 2.5,
+		Separation = 9,
+		SeparationPush = 7,
+		ThrowInterval = 1.5,
+		EvadeChance = 0.5,
+		EvadeDistance = 20,
+		EvadeStrafe = 12,
+		WanderRadius = 5,
 	},
 
 	Mobile = {
@@ -50,8 +65,7 @@ return {
 		WalkSpeedTolerance = 1.35, HumanoidCheckSeconds = 2,
 		ViolationDecaySeconds = 5, KickThreshold = 15,
 		RemoteBudgetPerSecond = 30, PingMaxDistance = 120,
-		RateLimitStrikes = false,
-		LogRateLimits = false,
+		RateLimitStrikes = false, LogRateLimits = false,
 	},
 
 	FTUE = {
@@ -75,17 +89,21 @@ return {
 		ChargeMin = 0.15, ChargeMax = 0.90, SpeedMin = 65, SpeedMax = 135,
 		Cooldown = 0.35, PickupRadius = 3.2, HoldTimeout = 8, HoldWarn = 6,
 		SpawnOffset = 2.6, SpawnLift = 1.0, OriginLeeway = 8,
-		LoftDeg = 8,
-		PitchInfluence = 0.3,
-		MinAngleDeg = -10,
-		MaxAngleDeg = 35,
+		LoftDeg = 8, PitchInfluence = 0.3, MinAngleDeg = -10, MaxAngleDeg = 35,
 	},
 
 	Carry = { ShowGlow = true, GlowBrightness = 0.55, GlowRange = 7 },
 
+	-- Ловля = стойка. Разрешение происходит на контакте, а не в мгновенном окне.
 	Catch = {
-		Window = 0.42, WhiffCooldown = 0.9, Stagger = 0.3,
-		Distance = 5.0, ConeDeg = 110, MaxSpeed = 125,
+		StanceSeconds = 0.5,
+		Window = 0.42,
+		WhiffCooldown = 0.6,
+		Stagger = 0.25,
+		Distance = 5.5,
+		ConeDeg = 130,
+		MaxSpeed = 130,
+		UseCameraAim = true,
 	},
 
 	Ball = {
@@ -167,7 +185,7 @@ return {
 	},
 
 	Bots = {
-		ReactionMin = 0.35, ReactionMax = 0.8, AimErrorMin = 3, AimErrorMax = 12,
+		ReactionMin = 0.35, ReactionMax = 0.8, AimErrorMin = 3, AimErrorMax = 10,
 		MinRealPlayersToStart = 1,
 	},
 
