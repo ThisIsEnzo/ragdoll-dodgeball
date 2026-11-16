@@ -1,0 +1,18 @@
+# Roblox
+*.rbxlx.lock
+*.rbxl.lock
+*.rbxlx
+*.rbxl
+sourcemap.json
+
+# Rojo / Wally
+Packages/
+wally.lock
+build/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
