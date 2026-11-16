@@ -1,6 +1,6 @@
--- BalanceConfig v0.2.1: единственный источник чисел баланса.
--- Изменение относительно v0.1: Bots.MinRealPlayersToStart = 1 для соло-теста в Studio.
--- Перед публичным релизом верни 2.
+-- BalanceConfig v0.3.0: единственный источник чисел баланса.
+-- Новое: секция Impact (модель отката), лёгкий мяч, лимит скорости подбора телом.
+-- Убрано: Throw.ImpulseMul / Throw.ImpulseCap — откат больше не считается от массы мяча.
 
 return {
 	Movement = {
@@ -21,8 +21,8 @@ return {
 		PickupRadius = 3.0,
 		HoldTimeout = 8,
 		HoldWarn = 6,
-		ImpulseMul = 1.4,
-		ImpulseCap = 220,
+		SpawnOffset = 2.6,
+		SpawnLift = 1.0,
 	},
 
 	Catch = {
@@ -36,13 +36,30 @@ return {
 
 	Ball = {
 		Size = 2.2,
-		Elasticity = 0.6,
-		Friction = 0.3,
-		Density = 1.0,
+		Density = 0.15,
+		Elasticity = 0.35,
+		Friction = 0.4,
 		HistorySeconds = 1.5,
 		HistoryRate = 30,
-		MinHitSpeed = 25,
+		MinHitSpeed = 22,
+		PickupMaxSpeed = 35,
 		RespawnBelowY = -60,
+		CarryOffset = Vector3.new(1.15, 0.35, -1.55),
+	},
+
+	-- Модель отката. Меняешь ощущения здесь, а не в коде.
+	Impact = {
+		SpeedToImpulse = 0.28,
+		MinLaunch = 14,
+		MaxLaunch = 42,
+		VerticalScale = 0.35,
+		MaxVertical = 12,
+		Spin = 8,
+		DragPerFrame = 0.90,
+		StopSpeed = 2,
+		CatchGrace = 0.15,
+		HitSlowdown = 0.85,
+		CatchKnockback = 26,
 	},
 
 	Round = {
@@ -93,7 +110,7 @@ return {
 		ReactionMax = 0.8,
 		AimErrorMin = 3,
 		AimErrorMax = 12,
-		MinRealPlayersToStart = 1, -- соло-тест в Studio; в проде 2
+		MinRealPlayersToStart = 1,
 	},
 
 	RateLimits = {
