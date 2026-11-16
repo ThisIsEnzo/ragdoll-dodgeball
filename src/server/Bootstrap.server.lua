@@ -1,12 +1,12 @@
--- Bootstrap v0.4.1: приёма позиции релиза от клиента с проверкой границы.
--- Всё остальное как в v0.4.0: арена перед спавнами, попадания из sweep-сигнала.
+-- Bootstrap v0.5.0: подключены DataService и ProgressionService.
+-- Порядок: данные до прогрессии, прогрессия до матча. Логи на английском.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared", 20)
-assert(Shared, "[Bootstrap] В ReplicatedStorage нет папки Shared")
+assert(Shared, "[Bootstrap] ReplicatedStorage.Shared is missing")
 
 local CFG = require(Shared:WaitForChild("BalanceConfig", 20))
 local Net = require(Shared:WaitForChild("Net", 20))
@@ -22,6 +22,8 @@ local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 local AbilityService = Resolve.Require(ServerScriptService, "AbilityService")
+local DataService = Resolve.Require(ServerScriptService, "DataService")
+local ProgressionService = Resolve.Require(ServerScriptService, "ProgressionService")
 local MatchService = Resolve.Require(ServerScriptService, "MatchService")
 local CatchService = Resolve.Require(ServerScriptService, "CatchService")
 
@@ -29,8 +31,8 @@ Net.Init()
 CatchService.Init(MatchService, AbilityService)
 
 local ORDER = {
-	AntiCheat, ArenaService, RagdollService, BallService,
-	RoundService, AbilityService, MatchService, CatchService,
+	AntiCheat, ArenaService, RagdollService, BallService, RoundService,
+	AbilityService, DataService, ProgressionService, MatchService, CatchService,
 }
 
 for _, service in ipairs(ORDER) do
@@ -56,13 +58,23 @@ local function onCharacter(character: Model)
 end
 
 local function onPlayer(player: Player)
+	ProgressionService.OnPlayer(player)
 	player.CharacterAdded:Connect(onCharacter)
 	if player.Character then onCharacter(player.Character) end
 	MatchService.Enqueue(player)
 end
 
 Players.PlayerAdded:Connect(onPlayer)
-for _, player in ipairs(Players:GetPlayers()) do onPlayer(player) end
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(onPlayer, player)
+end
+
+CatchService.Caught.Event:Connect(function(player: Player, revived: boolean)
+	ProgressionService.RegisterStat(player, "catches", 1)
+	if revived then
+		ProgressionService.RegisterStat(player, "revives", 1)
+	end
+end)
 
 Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, clientOrigin: any)
 	if not AntiCheat.Allow(player, "Throw") then return end
@@ -77,13 +89,13 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, client
 	if not ball then return end
 
 	local origin = if typeof(clientOrigin) == "Vector3" then clientOrigin else nil
-
 	local cannonMul, uncatchable = AbilityService.ConsumeCannon(player)
 	local suddenMul = if RoundService.IsSuddenDeath() then CFG.Round.SuddenDeathSpeedMul else 1
 
 	if BallService.Throw(character, ball, aimDir, charge, cannonMul * suddenMul, origin) then
 		throwCooldown[player.UserId] = now + CFG.Throw.Cooldown
 		if uncatchable then ball:SetAttribute("Uncatchable", true) end
+		ProgressionService.RegisterStat(player, "throws", 1)
 		Net.FireAll("FXEvent", "throw", ball, player.UserId)
 	end
 end)
@@ -106,9 +118,7 @@ Net.On("DodgeRequest", function(player: Player, direction: any)
 	dodgeCooldown[player.UserId] = now + CFG.Movement.DodgeCooldown
 	player:SetAttribute("InvulnUntil", now + CFG.Movement.DodgeIFrames)
 	root.AssemblyLinearVelocity = Vector3.new(
-		direction.Unit.X * CFG.Movement.DodgeSpeed,
-		6,
-		direction.Unit.Z * CFG.Movement.DodgeSpeed
+		direction.Unit.X * CFG.Movement.DodgeSpeed, 6, direction.Unit.Z * CFG.Movement.DodgeSpeed
 	)
 	Net.FireAll("FXEvent", "dodge", character)
 end)
@@ -116,6 +126,11 @@ end)
 Net.On("UltRequest", function(player: Player, ultId: any)
 	if not AntiCheat.Allow(player, "Ult") then return end
 	AbilityService.Use(player, ultId)
+end)
+
+Net.On("QuestClaim", function(player: Player, index: any)
+	if not AntiCheat.Allow(player, "QuestClaim") then return end
+	ProgressionService.ClaimQuest(player, index)
 end)
 
 Net.On("QueueJoin", function(player: Player)
@@ -148,7 +163,6 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 	if CatchService.InGrace(victimPlayer) and CatchService.GraceCatch(victimPlayer, ball) then
 		return
 	end
-
 	if AbilityService.IsInvulnerable(victimPlayer) then return end
 
 	if AbilityService.ConsumeShield(character:GetAttribute("Team")) then
@@ -159,7 +173,9 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 
 	if RagdollService.Hit(character, ball.AssemblyLinearVelocity) then
 		MatchService.OnKO(character, "hit")
-		AbilityService.AddHype(Players:GetPlayerFromCharacter(thrower), CFG.Hype.Hit)
+		local throwerPlayer = Players:GetPlayerFromCharacter(thrower)
+		AbilityService.AddHype(throwerPlayer, CFG.Hype.Hit)
+		ProgressionService.RegisterStat(throwerPlayer, "kos", 1)
 		ball.AssemblyLinearVelocity *= CFG.Impact.HitSlowdown
 		Net.FireAll("FXEvent", "ko", character, thrower, speed)
 	end
@@ -170,4 +186,4 @@ Players.PlayerRemoving:Connect(function(player)
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.4.1 запущен: перенос без репликации, lag-comp броска")
+print("[RagdollDodgeball] v0.5.0 server up: English UI, persistence, XP, coins, daily quests")
