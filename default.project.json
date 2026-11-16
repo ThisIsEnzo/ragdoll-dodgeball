@@ -8,6 +8,10 @@
     "ServerScriptService": {
       "Server": { "$path": "src/server" }
     },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "DevTools": { "$path": "src/devtools" }
+    },
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {

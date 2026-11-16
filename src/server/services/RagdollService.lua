@@ -1,6 +1,5 @@
--- RagdollService v0.3.0: контролируемый откат.
--- Скорость ЗАМЕНЯЕТСЯ, а не прибавляется. Вертикаль гасится. Затухание каждый кадр.
--- Все лимбы сети переводятся на сервер на время ragdoll, чтобы не было джиттера.
+-- RagdollService v0.7.0: перф. Тело, которое уже легло, больше не получает запись velocity каждый кадр.
+-- Это убирает до 480 репликаций в секунду при 8 активных ragdoll.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -15,6 +14,7 @@ local RagdollService = {}
 
 local rigs: { [Model]: any } = {}
 local active: { [Model]: number } = {}
+local settled: { [Model]: boolean } = {}
 local activeCount = 0
 
 function RagdollService.Init()
@@ -24,9 +24,7 @@ end
 local function setOwner(character: Model, owner: Player?)
 	for _, part in ipairs(character:GetDescendants()) do
 		if part:IsA("BasePart") and not part.Anchored then
-			pcall(function()
-				part:SetNetworkOwner(owner)
-			end)
+			pcall(function() part:SetNetworkOwner(owner) end)
 		end
 	end
 end
@@ -41,7 +39,6 @@ function RagdollService.Prepare(character: Model)
 	CollectionService:AddTag(character, "DodgeballActor")
 
 	local motors, constraints = {}, {}
-
 	for _, descendant in ipairs(character:GetDescendants()) do
 		if descendant:IsA("Motor6D") and descendant.Part0 and descendant.Part1 then
 			local a0 = Instance.new("Attachment")
@@ -74,6 +71,7 @@ function RagdollService.Prepare(character: Model)
 	character.AncestryChanged:Connect(function(_, parent)
 		if not parent then
 			rigs[character] = nil
+			settled[character] = nil
 			if active[character] then
 				active[character] = nil
 				activeCount = math.max(0, activeCount - 1)
@@ -86,7 +84,10 @@ function RagdollService.IsActive(character: Model): boolean
 	return active[character] ~= nil
 end
 
--- Низкий уровень: impulse уже осмысленный вектор. Всё равно клампится.
+function RagdollService.ActiveCount(): number
+	return activeCount
+end
+
 function RagdollService.Apply(character: Model, impulse: Vector3): boolean
 	local rig = rigs[character]
 	if not rig or active[character] then return false end
@@ -96,14 +97,9 @@ function RagdollService.Apply(character: Model, impulse: Vector3): boolean
 	if not root then return false end
 
 	local flat = Vector3.new(impulse.X, 0, impulse.Z)
-	if flat.Magnitude > CFG.Impact.MaxLaunch then
-		flat = flat.Unit * CFG.Impact.MaxLaunch
-	end
-	local vertical = math.clamp(
-		impulse.Y * CFG.Impact.VerticalScale,
-		-CFG.Impact.MaxVertical,
-		CFG.Impact.MaxVertical
-	)
+	if flat.Magnitude > CFG.Impact.MaxLaunch then flat = flat.Unit * CFG.Impact.MaxLaunch end
+	local vertical = math.clamp(impulse.Y * CFG.Impact.VerticalScale,
+		-CFG.Impact.MaxVertical, CFG.Impact.MaxVertical)
 
 	local humanoid = rig.humanoid
 	humanoid.AutoRotate = false
@@ -122,24 +118,19 @@ function RagdollService.Apply(character: Model, impulse: Vector3): boolean
 	).Unit * CFG.Impact.Spin
 
 	character:SetAttribute("Ragdolled", true)
+	settled[character] = false
 	active[character] = os.clock() + CFG.Round.RagdollTime
 	activeCount += 1
 	return true
 end
 
--- Откат от попадания мячом: сила зависит от скорости мяча, но жёстко ограничена.
 function RagdollService.Hit(character: Model, ballVelocity: Vector3): boolean
 	local speed = ballVelocity.Magnitude
 	if speed < 1 then return false end
-	local power = math.clamp(
-		speed * CFG.Impact.SpeedToImpulse,
-		CFG.Impact.MinLaunch,
-		CFG.Impact.MaxLaunch
-	)
+	local power = math.clamp(speed * CFG.Impact.SpeedToImpulse, CFG.Impact.MinLaunch, CFG.Impact.MaxLaunch)
 	return RagdollService.Apply(character, ballVelocity.Unit * power)
 end
 
--- Откат от ловли: направление от ловца к бросавшему.
 function RagdollService.Knockback(character: Model, direction: Vector3, power: number?): boolean
 	if direction.Magnitude < 0.01 then return false end
 	return RagdollService.Apply(character, direction.Unit * (power or CFG.Impact.CatchKnockback))
@@ -150,6 +141,7 @@ function RagdollService.Restore(character: Model)
 	if not rig or not active[character] then return end
 
 	active[character] = nil
+	settled[character] = nil
 	activeCount = math.max(0, activeCount - 1)
 
 	for _, socket in ipairs(rig.constraints) do socket.Enabled = false end
@@ -180,17 +172,21 @@ function RagdollService.Start()
 		for character, expires in pairs(active) do
 			if now >= expires or not character.Parent then
 				RagdollService.Restore(character)
-			else
+			elseif not settled[character] then
 				local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 				if root then
 					local v = root.AssemblyLinearVelocity
-					local flat = Vector3.new(v.X, 0, v.Z)
-					if flat.Magnitude <= CFG.Impact.StopSpeed then
+					local spin = root.AssemblyAngularVelocity.Magnitude
+					local flatSpeed = Vector3.new(v.X, 0, v.Z).Magnitude
+
+					if flatSpeed <= CFG.Perf.RagdollSettleSpeed and spin <= CFG.Perf.RagdollSettleSpin then
+						-- один финальный write, дальше тело не трогаем
 						root.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
-						root.AssemblyAngularVelocity *= drag
+						root.AssemblyAngularVelocity = Vector3.zero
+						settled[character] = true
 					else
 						root.AssemblyLinearVelocity = Vector3.new(v.X * drag, v.Y, v.Z * drag)
-						root.AssemblyAngularVelocity *= drag
+						root.AssemblyAngularVelocity = root.AssemblyAngularVelocity * drag
 					end
 				end
 			end

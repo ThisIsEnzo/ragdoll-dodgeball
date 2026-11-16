@@ -1,6 +1,8 @@
--- ProgressionService v0.6.0: пишет firstThrowSeconds и ftueDone в профиль для когортного анализа.
+-- ProgressionService v0.7.0: перф. ProfileState и QuestState коалесцируются до 5 Гц.
+-- Раньше каждый бросок слал два remote-пакета. Критичные события (level up, claim) шлются сразу.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -12,14 +14,17 @@ local Resolve = require(Shared:WaitForChild("Resolve"))
 local DataService = Resolve.Require(ServerScriptService, "DataService")
 
 local ProgressionService = {}
+ProgressionService.SessionStart = {}
 
 local DAY = 86400
+local dirtyProfile: { [number]: boolean } = {}
+local dirtyQuests: { [number]: boolean } = {}
 
 local function today(): number
 	return math.floor(os.time() / DAY)
 end
 
-local function pushProfile(player: Player)
+local function sendProfile(player: Player)
 	local data = DataService.Get(player)
 	if not data then return end
 	Net.FireClient("ProfileState", player, {
@@ -29,9 +34,10 @@ local function pushProfile(player: Player)
 		persistent = DataService.IsPersistent(player),
 		matches = data.matches,
 	})
+	dirtyProfile[player.UserId] = nil
 end
 
-local function pushQuests(player: Player)
+local function sendQuests(player: Player)
 	local data = DataService.Get(player)
 	if not data then return end
 	local list = {}
@@ -44,6 +50,7 @@ local function pushQuests(player: Player)
 		})
 	end
 	Net.FireClient("QuestState", player, list)
+	dirtyQuests[player.UserId] = nil
 end
 
 local function rollQuests(userId: number, day: number)
@@ -51,8 +58,7 @@ local function rollQuests(userId: number, day: number)
 	local pool = table.clone(CFG.QuestPool)
 	local picked = {}
 	for _ = 1, math.min(CFG.Progression.QuestSlots, #pool) do
-		local index = rng:NextInteger(1, #pool)
-		local entry = table.remove(pool, index)
+		local entry = table.remove(pool, rng:NextInteger(1, #pool))
 		table.insert(picked, { id = entry.id, stat = entry.stat, target = entry.target, claimed = false })
 	end
 	return picked
@@ -73,12 +79,11 @@ local function refreshDaily(player: Player, data: any)
 
 	local reward = CFG.Progression.StreakCoins[data.streakDay] or CFG.Progression.StreakCoins[1]
 	data.coins += reward
-
 	data.questDay = day
 	data.quests = rollQuests(player.UserId, day)
 	data.questProgress = {}
 
-	print(string.format("[Progress] %s day %d streak, +%d coins, quests rolled", player.Name, day, reward))
+	print(string.format("[Progress] %s day %d streak, +%d coins", player.Name, day, reward))
 end
 
 local function checkLevelUp(player: Player, data: any)
@@ -92,19 +97,23 @@ local function checkLevelUp(player: Player, data: any)
 		print(string.format("[Progress] %s level %d%s", player.Name, data.level,
 			if unlock then (" unlocked " .. unlock) else ""))
 	end
-	if data.level >= maxLevel then
-		data.xp = math.min(data.xp, CFG.XP.ToNext(maxLevel))
-	end
+	if data.level >= maxLevel then data.xp = math.min(data.xp, CFG.XP.ToNext(maxLevel)) end
 end
 
 function ProgressionService.Init() end
 
 function ProgressionService.OnPlayer(player: Player)
+	ProgressionService.SessionStart[player.UserId] = os.clock()
 	local data = DataService.Load(player)
 	refreshDaily(player, data)
 	checkLevelUp(player, data)
-	pushProfile(player)
-	pushQuests(player)
+	sendProfile(player)
+	sendQuests(player)
+end
+
+function ProgressionService.SessionSeconds(player: Player): number
+	local started = ProgressionService.SessionStart[player.UserId]
+	return if started then (os.clock() - started) else 0
 end
 
 function ProgressionService.AddXP(player: Player?, amount: number)
@@ -113,7 +122,7 @@ function ProgressionService.AddXP(player: Player?, amount: number)
 	if not data or amount <= 0 then return end
 	data.xp += amount
 	checkLevelUp(player, data)
-	pushProfile(player)
+	dirtyProfile[player.UserId] = true
 end
 
 function ProgressionService.AddCoins(player: Player?, amount: number)
@@ -121,7 +130,7 @@ function ProgressionService.AddCoins(player: Player?, amount: number)
 	local data = DataService.Get(player)
 	if not data or amount <= 0 then return end
 	data.coins += amount
-	pushProfile(player)
+	dirtyProfile[player.UserId] = true
 end
 
 function ProgressionService.RegisterStat(player: Player?, stat: string, amount: number?)
@@ -144,14 +153,12 @@ function ProgressionService.RegisterStat(player: Player?, stat: string, amount: 
 	elseif stat == "throws" then
 		ProgressionService.AddXP(player, CFG.Progression.ThrowXP * n)
 		if data.firstThrowSeconds == 0 then
-			local session = player:GetAttribute("SessionSeconds")
-			if typeof(session) == "number" then
-				data.firstThrowSeconds = math.floor(session * 10) / 10
-			end
+			data.firstThrowSeconds = math.floor(ProgressionService.SessionSeconds(player) * 10) / 10
 		end
 	end
 
-	pushQuests(player)
+	dirtyQuests[player.UserId] = true
+	dirtyProfile[player.UserId] = true
 end
 
 function ProgressionService.MarkFtueDone(player: Player?)
@@ -171,8 +178,8 @@ function ProgressionService.ClaimQuest(player: Player, index: any): boolean
 	quest.claimed = true
 	data.coins += CFG.Progression.QuestRewardCoins
 	ProgressionService.AddXP(player, CFG.Progression.QuestRewardXP)
-	pushQuests(player)
-	pushProfile(player)
+	sendQuests(player)
+	sendProfile(player)
 	return true
 end
 
@@ -195,11 +202,33 @@ function ProgressionService.SettleMatch(players: { Player }, winners: { Player }
 			data.coins += if won then CFG.Progression.MatchWinCoins else CFG.Progression.MatchLossCoins
 			ProgressionService.AddXP(player,
 				if won then CFG.Progression.MatchWinXP else CFG.Progression.MatchLossXP)
-			pushProfile(player)
+			sendProfile(player)
 		end
 	end
 end
 
-function ProgressionService.Start() end
+function ProgressionService.Start()
+	Players.PlayerRemoving:Connect(function(player)
+		local userId = player.UserId
+		dirtyProfile[userId] = nil
+		dirtyQuests[userId] = nil
+		ProgressionService.SessionStart[userId] = nil
+	end)
+
+	local interval = 1 / math.max(CFG.Perf.ProfilePushHz, 1)
+	local accumulator = 0
+
+	RunService.Heartbeat:Connect(function(dt)
+		accumulator += dt
+		if accumulator < interval then return end
+		accumulator = 0
+
+		for _, player in ipairs(Players:GetPlayers()) do
+			local userId = player.UserId
+			if dirtyQuests[userId] then sendQuests(player) end
+			if dirtyProfile[userId] then sendProfile(player) end
+		end
+	end)
+end
 
 return ProgressionService
