@@ -1,5 +1,5 @@
--- MatchService v0.2.1: очередь, команды, спавны, скамейка, матч до 3 побед, реванш.
--- Все зависимости берутся резолвером от ServerScriptService — вложенность папок не важна.
+-- MatchService v0.5.0: очередь, команды, спавны, скамейка, матч до 3 побед, реванш.
+-- Новое: расчёт наград через ProgressionService за раунды и за матч.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -14,6 +14,7 @@ local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local BotController = Resolve.Require(ServerScriptService, "BotController")
+local ProgressionService = Resolve.Require(ServerScriptService, "ProgressionService")
 
 local MatchService = {}
 
@@ -31,6 +32,15 @@ local function shuffle(list)
 		local j = math.random(i)
 		list[i], list[j] = list[j], list[i]
 	end
+end
+
+local function playersOf(team: number): { Player }
+	local list = {}
+	for _, character in ipairs(teams[team]) do
+		local player = Players:GetPlayerFromCharacter(character)
+		if player then table.insert(list, player) end
+	end
+	return list
 end
 
 local function readMarkers()
@@ -163,6 +173,7 @@ local function setupRound()
 				RagdollService.Restore(character)
 				character:SetAttribute("Ragdolled", false)
 				character:SetAttribute("Benched", false)
+				character:SetAttribute("Carrying", false)
 				teleport(character, spawns[team][((index - 1) % #spawns[team]) + 1])
 				RoundService.Register(character, team)
 			end
@@ -206,6 +217,7 @@ function MatchService.StartMatch()
 		while RoundService.Wins(1) < CFG.Round.WinsNeeded and RoundService.Wins(2) < CFG.Round.WinsNeeded do
 			local winner = RoundService.RunRound(setupRound)
 			if winner == nil then break end
+			ProgressionService.SettleRound(playersOf(winner))
 		end
 
 		local matchWinner = if RoundService.Wins(1) > RoundService.Wins(2) then 1 else 2
@@ -213,7 +225,12 @@ function MatchService.StartMatch()
 			state = "MatchEnd", winner = matchWinner, inMatch = false,
 			wins1 = RoundService.Wins(1), wins2 = RoundService.Wins(2), timer = 0,
 		})
-		print("[Match] Победила команда " .. matchWinner)
+
+		ProgressionService.SettleMatch(
+			{ table.unpack(playersOf(1)), table.unpack(playersOf(2)) },
+			playersOf(matchWinner)
+		)
+		print("[Match] Team " .. matchWinner .. " won the match")
 		task.wait(CFG.Round.MatchEnd)
 
 		for _, player in ipairs(Players:GetPlayers()) do
