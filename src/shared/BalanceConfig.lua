@@ -1,5 +1,6 @@
--- BalanceConfig: единственный источник чисел баланса.
--- Читают и сервер, и клиент. Никаких магических чисел в других модулях.
+-- BalanceConfig v0.2.1: единственный источник чисел баланса.
+-- Изменение относительно v0.1: Bots.MinRealPlayersToStart = 1 для соло-теста в Studio.
+-- Перед публичным релизом верни 2.
 
 return {
 	Movement = {
@@ -92,7 +93,7 @@ return {
 		ReactionMax = 0.8,
 		AimErrorMin = 3,
 		AimErrorMax = 12,
-		MinRealPlayersToStart = 2,
+		MinRealPlayersToStart = 1, -- соло-тест в Studio; в проде 2
 	},
 
 	RateLimits = {
