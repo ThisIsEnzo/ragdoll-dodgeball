@@ -1,7 +1,5 @@
--- DataService: сохранение профиля с session-lock и мягким отказом.
--- Если DataStore недоступен (Studio API access выключен) — уходим в memory-mode,
--- игра продолжает работать, клиент получает флаг persistent=false и показывает предупреждение.
--- Никаких внешних зависимостей: только DataStoreService.
+-- DataService v0.6.0: добавлены поля воронки в профиль (firstThrowSeconds, ftueDone, sessions).
+--_Session-lock и мягкий отказ в memory-mode сохранены.
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
@@ -21,21 +19,15 @@ local warned = false
 
 local TEMPLATE = {
 	schema = 1,
-	coins = 0,
-	xp = 0,
-	level = 1,
-	matches = 0,
-	wins = 0,
-	kos = 0,
-	catches = 0,
-	throws = 0,
-	revives = 0,
-	roundWins = 0,
-	streakDay = 0,
-	streakStamp = 0,
-	questDay = 0,
-	quests = {},
-	questProgress = {},
+	coins = 0, xp = 0, level = 1,
+	matches = 0, wins = 0,
+	kos = 0, catches = 0, throws = 0, revives = 0, roundWins = 0,
+	streakDay = 0, streakStamp = 0,
+	questDay = 0, quests = {}, questProgress = {},
+	sessions = 0,
+	firstThrowSeconds = 0,
+	ftueDone = false,
+	lastSeenDay = 0,
 }
 
 local function reconcile(old: any)
@@ -57,9 +49,7 @@ end
 local function copyForSave(data: any)
 	local payload = {}
 	for key, value in pairs(data) do
-		if key ~= "lockJob" and key ~= "lockUntil" then
-			payload[key] = value
-		end
+		if key ~= "lockJob" and key ~= "lockUntil" then payload[key] = value end
 	end
 	return payload
 end
@@ -77,7 +67,7 @@ function DataService.Load(player: Player)
 	local now = os.time()
 	local loaded = nil
 
-	for attempt = 1, 3 do
+	for _ = 1, 3 do
 		local ok, result = pcall(function()
 			return store:UpdateAsync("u_" .. userId, function(old)
 				local data = reconcile(old)
@@ -106,11 +96,12 @@ function DataService.Load(player: Player)
 	if not loaded then
 		loaded = reconcile(nil)
 		profiles[userId] = { data = loaded, persistent = false }
-		warnOnce("Session locked elsewhere or store unavailable; running in memory mode for " .. player.Name)
+		warnOnce("Store unavailable or session locked elsewhere; memory mode for " .. player.Name)
 	else
 		profiles[userId] = { data = loaded, persistent = true }
 	end
 
+	loaded.sessions += 1
 	return profiles[userId].data
 end
 
@@ -171,19 +162,13 @@ function DataService.Start()
 	task.spawn(function()
 		while true do
 			task.wait(CFG.Progression.AutosaveSeconds)
-			for userId in pairs(profiles) do
-				DataService.Save(userId)
-			end
+			for userId in pairs(profiles) do DataService.Save(userId) end
 		end
 	end)
 
 	game:BindToClose(function()
-		for userId in pairs(profiles) do
-			DataService.Save(userId)
-		end
-		if not RunService:IsStudio() then
-			task.wait(3)
-		end
+		for userId in pairs(profiles) do DataService.Save(userId) end
+		if not RunService:IsStudio() then task.wait(3) end
 	end)
 end
 
