@@ -1,21 +1,26 @@
--- Bootstrap v0.2: точка входа. Загружает сервисы, связывает бросок, ловлю, попадание, ульты.
+-- Bootstrap v0.2.1: точка входа. Модули ищутся резолвером, папки больше не важны.
 
 local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local CFG = require(Shared:WaitForChild("BalanceConfig"))
-local Net = require(Shared:WaitForChild("Net"))
+local Shared = ReplicatedStorage:WaitForChild("Shared", 20)
+assert(Shared, "[Bootstrap] В ReplicatedStorage нет папки Shared с BalanceConfig, Net и Resolve")
 
-local services = script:WaitForChild("services")
-local AntiCheat = require(services:WaitForChild("AntiCheat"))
-local RagdollService = require(services:WaitForChild("RagdollService"))
-local BallService = require(services:WaitForChild("BallService"))
-local RoundService = require(services:WaitForChild("RoundService"))
-local AbilityService = require(services:WaitForChild("AbilityService"))
-local MatchService = require(services:WaitForChild("MatchService"))
-local CatchService = require(services:WaitForChild("CatchService"))
+local CFG = require(Shared:WaitForChild("BalanceConfig", 20))
+local Net = require(Shared:WaitForChild("Net", 20))
+local Resolve = require(Shared:WaitForChild("Resolve", 20))
+
+Resolve.Report(ServerScriptService, "Bootstrap")
+
+local AntiCheat = Resolve.Require(ServerScriptService, "AntiCheat")
+local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
+local BallService = Resolve.Require(ServerScriptService, "BallService")
+local RoundService = Resolve.Require(ServerScriptService, "RoundService")
+local AbilityService = Resolve.Require(ServerScriptService, "AbilityService")
+local MatchService = Resolve.Require(ServerScriptService, "MatchService")
+local CatchService = Resolve.Require(ServerScriptService, "CatchService")
 
 Net.Init()
 CatchService.Init(MatchService, AbilityService)
@@ -162,4 +167,4 @@ Players.PlayerRemoving:Connect(function(player)
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.2 запущен: матч, ловля, боты, ульты")
+print("[RagdollDodgeball] v0.2.1 запущен: матч, ловля, боты, ульты")
