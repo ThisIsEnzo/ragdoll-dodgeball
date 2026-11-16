@@ -1,4 +1,5 @@
--- ClientBootstrap v0.2.1: контроллеры ищутся резолвером, папки больше не важны.
+-- ClientBootstrap v0.4.0: контроллеры ищутся резолвером, порядок инициализации важен.
+-- Input -> HUD -> Impact -> Clips: косметика подключается после того, как HUD занял экран.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,8 +13,10 @@ Resolve.Report(PlayerScripts, "Client")
 
 local InputController = Resolve.Require(PlayerScripts, "InputController")
 local HUDController = Resolve.Require(PlayerScripts, "HUDController")
+local ImpactController = Resolve.Require(PlayerScripts, "ImpactController")
+local ClipController = Resolve.Require(PlayerScripts, "ClipController")
 
-local ORDER = { InputController, HUDController }
+local ORDER = { InputController, HUDController, ImpactController, ClipController }
 
 for _, controller in ipairs(ORDER) do
 	if controller.Init then controller.Init() end
@@ -22,4 +25,4 @@ for _, controller in ipairs(ORDER) do
 	if controller.Start then controller.Start() end
 end
 
-print("[RagdollDodgeball] Клиент v0.2.1 готов")
+print("[RagdollDodgeball] Клиент v0.4.0 готов: импакт и детект моментов включены")
