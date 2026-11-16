@@ -1,5 +1,10 @@
--- BotController v0.2.1: NPC-боты, FSM Seek / Aim / Throw / Evade.
--- Зависимости берутся резолвером от ServerScriptService.
+-- BotController v0.8.1: боты различимы. Уникальные имена, цвета команды, разброс пропорций.
+-- Путь именно src/server/AI/, не services/ — в v0.8.0 патч указал неверную папку.
+--
+-- Атрибуты DisplayName и IsBot читает TeamIdentityService: без них над ботами
+-- висит одинаковый Bot_Team1 и нет метки BOT.
+--
+-- Зависимости берутся резолвером от ServerScriptService, поэтому вложенность папок не важна.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -15,11 +20,59 @@ local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
 
 local BotController = {}
 local bots: { Model } = {}
+local usedNames: { [string]: boolean } = {}
 
-local function createRig(): Model?
+local SKIN_TONES = {
+	Color3.fromRGB(255, 204, 153),
+	Color3.fromRGB(234, 184, 146),
+	Color3.fromRGB(198, 134, 96),
+	Color3.fromRGB(140, 92, 62),
+	Color3.fromRGB(255, 219, 172),
+}
+
+local function pickName(): string
+	local pool = CFG.Readability.BotNames
+	for _ = 1, #pool do
+		local candidate = pool[math.random(1, #pool)]
+		if not usedNames[candidate] then
+			usedNames[candidate] = true
+			return candidate
+		end
+	end
+	local fallback = "Bot" .. tostring(math.random(10, 99))
+	usedNames[fallback] = true
+	return fallback
+end
+
+-- Цвета работают и на R6, и на R15. Пропорции R6 может проигнорировать,
+-- поэтому основные различители — имя, цвет торса и тон кожи.
+local function buildDescription(team: number): HumanoidDescription
+	local entry = CFG.Teams[team] or CFG.Teams[1]
+	local skin = SKIN_TONES[math.random(1, #SKIN_TONES)]
+	local jitter = CFG.Readability.BotScaleJitter
+
+	local description = Instance.new("HumanoidDescription")
+	description.HeadColor = skin
+	description.LeftArmColor = skin
+	description.RightArmColor = skin
+	description.TorsoColor = entry.color
+	description.LeftLegColor = entry.dark
+	description.RightLegColor = entry.dark
+
+	local function scale()
+		return 1 + (math.random() * 2 - 1) * jitter
+	end
+	description.HeightScale = scale()
+	description.WidthScale = scale()
+	description.DepthScale = scale()
+	description.HeadScale = scale()
+
+	return description
+end
+
+local function createRig(team: number): Model?
 	local ok, model = pcall(function()
-		local description = Instance.new("HumanoidDescription")
-		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
+		return Players:CreateHumanoidModelFromDescription(buildDescription(team), Enum.HumanoidRigType.R6)
 	end)
 	if ok and model then return model end
 
@@ -90,14 +143,17 @@ local function think(bot: Model)
 end
 
 function BotController.Spawn(team: number, position: Vector3): Model?
-	local bot = createRig()
+	local bot = createRig(team)
 	if not bot then
-		warn("[BotController] Не удалось создать рига: положи BotRig в ServerStorage как фолбэк")
+		warn("[BotController] Could not create a rig. Put a BotRig into ServerStorage as a fallback.")
 		return nil
 	end
 
-	bot.Name = "Bot_Team" .. team
+	local displayName = pickName()
+	bot.Name = "Bot_" .. displayName
 	bot:SetAttribute("Team", team)
+	bot:SetAttribute("DisplayName", displayName)
+	bot:SetAttribute("IsBot", true)
 	bot:SetAttribute("Benched", false)
 	bot:SetAttribute("Ragdolled", false)
 	bot.Parent = workspace
@@ -121,6 +177,7 @@ function BotController.DespawnAll()
 		if bot.Parent then bot:Destroy() end
 	end
 	table.clear(bots)
+	table.clear(usedNames)
 end
 
 function BotController.Init() end
