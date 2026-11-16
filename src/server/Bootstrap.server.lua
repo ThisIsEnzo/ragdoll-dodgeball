@@ -1,17 +1,19 @@
--- Bootstrap v0.2.1: точка входа. Модули ищутся резолвером, папки больше не важны.
+-- Bootstrap v0.3.0: попадания приходят из sweep-сигнала BallService, не из Touched.
+-- Откат считает RagdollService по модели Impact. Физика мяча игрока не толкает.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
-local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared", 20)
-assert(Shared, "[Bootstrap] В ReplicatedStorage нет папки Shared с BalanceConfig, Net и Resolve")
+assert(Shared, "[Bootstrap] В ReplicatedStorage нет папки Shared")
 
 local CFG = require(Shared:WaitForChild("BalanceConfig", 20))
 local Net = require(Shared:WaitForChild("Net", 20))
 local Resolve = require(Shared:WaitForChild("Resolve", 20))
+local Collision = require(Shared:WaitForChild("Collision", 20))
 
+Collision.Setup()
 Resolve.Report(ServerScriptService, "Bootstrap")
 
 local AntiCheat = Resolve.Require(ServerScriptService, "AntiCheat")
@@ -96,7 +98,11 @@ Net.On("DodgeRequest", function(player: Player, direction: any)
 
 	dodgeCooldown[player.UserId] = now + CFG.Movement.DodgeCooldown
 	player:SetAttribute("InvulnUntil", now + CFG.Movement.DodgeIFrames)
-	root.AssemblyLinearVelocity = direction.Unit * CFG.Movement.DodgeSpeed + Vector3.new(0, 8, 0)
+	root.AssemblyLinearVelocity = Vector3.new(
+		direction.Unit.X * CFG.Movement.DodgeSpeed,
+		6,
+		direction.Unit.Z * CFG.Movement.DodgeSpeed
+	)
 	Net.FireAll("FXEvent", "dodge", character)
 end)
 
@@ -123,48 +129,39 @@ Net.On("PingRequest", function(player: Player, position: any)
 	Net.FireAll("FXEvent", "ping", position, player.UserId)
 end)
 
-local function bindBall(ball: BasePart)
-	if not ball:IsA("BasePart") or ball:GetAttribute("Bound") then return end
-	ball:SetAttribute("Bound", true)
+-- Единая точка правил попадания
+BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model, speed: number)
+	if character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
 
-	ball.Touched:Connect(function(hit)
-		local character = hit:FindFirstAncestorOfClass("Model")
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		if not character or not humanoid or humanoid.Health <= 0 then return end
-		if character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
-		if ball:GetAttribute("HeldBy") then return end
+	local thrower = BallService.LastThrower(ball)
+	if not thrower or thrower == character then return end
+	if thrower:GetAttribute("Team") == character:GetAttribute("Team") then return end
 
-		local speed = ball.AssemblyLinearVelocity.Magnitude
-		if speed < CFG.Ball.MinHitSpeed then return end
+	local victimPlayer = Players:GetPlayerFromCharacter(character)
 
-		local thrower, thrownAt = BallService.LastThrower(ball)
-		if not thrower or (thrownAt and os.clock() - thrownAt < 0.15) then return end
-		if thrower == character then return end
-		if thrower:GetAttribute("Team") == character:GetAttribute("Team") then return end
+	if CatchService.InGrace(victimPlayer) and CatchService.GraceCatch(victimPlayer, ball) then
+		return
+	end
 
-		local victimPlayer = Players:GetPlayerFromCharacter(character)
-		if AbilityService.IsInvulnerable(victimPlayer) then return end
-		if AbilityService.ConsumeShield(character:GetAttribute("Team")) then
-			ball.AssemblyLinearVelocity = -ball.AssemblyLinearVelocity * 0.5
-			Net.FireAll("FXEvent", "shield", character)
-			return
-		end
+	if AbilityService.IsInvulnerable(victimPlayer) then return end
 
-		local impulse = ball.AssemblyLinearVelocity.Unit * (speed * CFG.Throw.ImpulseMul)
-		if RagdollService.Apply(character, impulse) then
-			MatchService.OnKO(character, "hit")
-			AbilityService.AddHype(Players:GetPlayerFromCharacter(thrower), CFG.Hype.Hit)
-			ball:SetAttribute("Clean", false)
-		end
-	end)
-end
+	if AbilityService.ConsumeShield(character:GetAttribute("Team")) then
+		ball.AssemblyLinearVelocity = -ball.AssemblyLinearVelocity * 0.4
+		Net.FireAll("FXEvent", "shield", character)
+		return
+	end
 
-for _, ball in ipairs(CollectionService:GetTagged("Dodgeball")) do bindBall(ball) end
-CollectionService:GetInstanceAddedSignal("Dodgeball"):Connect(bindBall)
+	if RagdollService.Hit(character, ball.AssemblyLinearVelocity) then
+		MatchService.OnKO(character, "hit")
+		AbilityService.AddHype(Players:GetPlayerFromCharacter(thrower), CFG.Hype.Hit)
+		ball.AssemblyLinearVelocity *= CFG.Impact.HitSlowdown
+		Net.FireAll("FXEvent", "ko", character, thrower, speed)
+	end
+end)
 
 Players.PlayerRemoving:Connect(function(player)
 	throwCooldown[player.UserId] = nil
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.2.1 запущен: матч, ловля, боты, ульты")
+print("[RagdollDodgeball] v0.3.0 запущен: контролируемый откат, перенос без физики, sweep-попадания")

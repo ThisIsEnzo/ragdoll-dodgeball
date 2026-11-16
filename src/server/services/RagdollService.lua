@@ -1,54 +1,44 @@
--- RagdollService: Motor6D <-> BallSocketConstraint, импульс, восстановление.
--- Констрейнты строятся один раз при спавне персонажа, переключение дешёвое.
+-- RagdollService v0.3.0: контролируемый откат.
+-- Скорость ЗАМЕНЯЕТСЯ, а не прибавляется. Вертикаль гасится. Затухание каждый кадр.
+-- Все лимбы сети переводятся на сервер на время ragdoll, чтобы не было джиттера.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local PhysicsService = game:GetService("PhysicsService")
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local CFG = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BalanceConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CFG = require(Shared:WaitForChild("BalanceConfig"))
+local Collision = require(Shared:WaitForChild("Collision"))
 
 local RagdollService = {}
 
-local rigs: { [Model]: { motors: { Motor6D }, constraints: { BallSocketConstraint }, humanoid: Humanoid } } = {}
+local rigs: { [Model]: any } = {}
 local active: { [Model]: number } = {}
 local activeCount = 0
 
-local GROUPS = { "Players", "Ragdolls", "Balls", "Arena" }
-
-local function registerGroups()
-	for _, name in ipairs(GROUPS) do
-		pcall(function()
-			PhysicsService:RegisterCollisionGroup(name)
-		end)
-	end
-	PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Ragdolls", false)
-	PhysicsService:CollisionGroupSetCollidable("Ragdolls", "Players", false)
-	PhysicsService:CollisionGroupSetCollidable("Balls", "Ragdolls", true)
+function RagdollService.Init()
+	Collision.Setup()
 end
 
-local function setPartsGroup(character: Model, group: string)
+local function setOwner(character: Model, owner: Player?)
 	for _, part in ipairs(character:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CollisionGroup = group
+		if part:IsA("BasePart") and not part.Anchored then
+			pcall(function()
+				part:SetNetworkOwner(owner)
+			end)
 		end
 	end
 end
 
-function RagdollService.Init()
-	registerGroups()
-end
-
--- Строим рig один раз на персонажа
 function RagdollService.Prepare(character: Model)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then
-		return
-	end
+	if not humanoid then return end
 
 	humanoid.BreakJointsOnDeath = false
 	humanoid.RequiresNeck = false
-	setPartsGroup(character, "Players")
+	Collision.SetParts(character, "Players")
+	CollectionService:AddTag(character, "DodgeballActor")
 
 	local motors, constraints = {}, {}
 
@@ -96,87 +86,113 @@ function RagdollService.IsActive(character: Model): boolean
 	return active[character] ~= nil
 end
 
--- impulse: вектор impulses, применяется к торсу. Возвращает false, если лимит исчерпан.
+-- Низкий уровень: impulse уже осмысленный вектор. Всё равно клампится.
 function RagdollService.Apply(character: Model, impulse: Vector3): boolean
 	local rig = rigs[character]
-	if not rig or active[character] then
-		return false
-	end
-	if activeCount >= CFG.Round.MaxActiveRagdolls then
-		return false
-	end
+	if not rig or active[character] then return false end
+	if activeCount >= CFG.Round.MaxActiveRagdolls then return false end
 
 	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not root then
-		return false
+	if not root then return false end
+
+	local flat = Vector3.new(impulse.X, 0, impulse.Z)
+	if flat.Magnitude > CFG.Impact.MaxLaunch then
+		flat = flat.Unit * CFG.Impact.MaxLaunch
 	end
+	local vertical = math.clamp(
+		impulse.Y * CFG.Impact.VerticalScale,
+		-CFG.Impact.MaxVertical,
+		CFG.Impact.MaxVertical
+	)
 
 	local humanoid = rig.humanoid
 	humanoid.AutoRotate = false
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
 	humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
-	for _, motor in ipairs(rig.motors) do
-		motor.Enabled = false
-	end
-	for _, socket in ipairs(rig.constraints) do
-		socket.Enabled = true
-	end
+	for _, motor in ipairs(rig.motors) do motor.Enabled = false end
+	for _, socket in ipairs(rig.constraints) do socket.Enabled = true end
 
-	setPartsGroup(character, "Ragdolls")
-	pcall(function()
-		root:SetNetworkOwner(nil)
-	end)
+	Collision.SetParts(character, "Ragdolls")
+	setOwner(character, nil)
 
-	local capped = impulse
-	if capped.Magnitude > CFG.Throw.ImpulseCap then
-		capped = capped.Unit * CFG.Throw.ImpulseCap
-	end
-	root.AssemblyLinearVelocity = root.AssemblyLinearVelocity + capped
+	root.AssemblyLinearVelocity = Vector3.new(flat.X, vertical, flat.Z)
+	root.AssemblyAngularVelocity = Vector3.new(
+		math.random() - 0.5, math.random() - 0.5, math.random() - 0.5
+	).Unit * CFG.Impact.Spin
 
+	character:SetAttribute("Ragdolled", true)
 	active[character] = os.clock() + CFG.Round.RagdollTime
 	activeCount += 1
 	return true
 end
 
+-- Откат от попадания мячом: сила зависит от скорости мяча, но жёстко ограничена.
+function RagdollService.Hit(character: Model, ballVelocity: Vector3): boolean
+	local speed = ballVelocity.Magnitude
+	if speed < 1 then return false end
+	local power = math.clamp(
+		speed * CFG.Impact.SpeedToImpulse,
+		CFG.Impact.MinLaunch,
+		CFG.Impact.MaxLaunch
+	)
+	return RagdollService.Apply(character, ballVelocity.Unit * power)
+end
+
+-- Откат от ловли: направление от ловца к бросавшему.
+function RagdollService.Knockback(character: Model, direction: Vector3, power: number?): boolean
+	if direction.Magnitude < 0.01 then return false end
+	return RagdollService.Apply(character, direction.Unit * (power or CFG.Impact.CatchKnockback))
+end
+
 function RagdollService.Restore(character: Model)
 	local rig = rigs[character]
-	if not rig or not active[character] then
-		return
-	end
+	if not rig or not active[character] then return end
 
 	active[character] = nil
 	activeCount = math.max(0, activeCount - 1)
 
-	for _, socket in ipairs(rig.constraints) do
-		socket.Enabled = false
-	end
-	for _, motor in ipairs(rig.motors) do
-		motor.Enabled = true
-	end
+	for _, socket in ipairs(rig.constraints) do socket.Enabled = false end
+	for _, motor in ipairs(rig.motors) do motor.Enabled = true end
 
-	setPartsGroup(character, "Players")
+	Collision.SetParts(character, "Players")
+
+	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root then
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end
 
 	local humanoid = rig.humanoid
 	humanoid.AutoRotate = true
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
 	humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 
-	local player = Players:GetPlayerFromCharacter(character)
-	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if player and root then
-		pcall(function()
-			root:SetNetworkOwner(player)
-		end)
-	end
+	character:SetAttribute("Ragdolled", false)
+	setOwner(character, Players:GetPlayerFromCharacter(character))
 end
 
 function RagdollService.Start()
-	RunService.Heartbeat:Connect(function()
+	RunService.Heartbeat:Connect(function(dt)
 		local now = os.clock()
+		local drag = CFG.Impact.DragPerFrame ^ (dt * 60)
+
 		for character, expires in pairs(active) do
 			if now >= expires or not character.Parent then
 				RagdollService.Restore(character)
+			else
+				local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root then
+					local v = root.AssemblyLinearVelocity
+					local flat = Vector3.new(v.X, 0, v.Z)
+					if flat.Magnitude <= CFG.Impact.StopSpeed then
+						root.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+						root.AssemblyAngularVelocity *= drag
+					else
+						root.AssemblyLinearVelocity = Vector3.new(v.X * drag, v.Y, v.Z * drag)
+						root.AssemblyAngularVelocity *= drag
+					end
+				end
 			end
 		end
 	end)
