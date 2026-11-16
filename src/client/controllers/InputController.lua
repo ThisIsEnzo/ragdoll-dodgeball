@@ -1,8 +1,5 @@
--- InputController v0.9.0: прицел больше не берёт сырой наклон камеры.
---
--- Камера в третьем лице смотрит вниз. Сырой LookVector отправлял мяч в пол в паре метров.
--- Теперь: горизонталь камеры + фиксированный лофт, влияние питча ослаблено.
--- Рывок идёт по джойстику, заряд отпускается глобально, геймпад поддержан.
+-- InputController v0.10.0: ловля отправляет направление камеры.
+-- Конус ловли считается от взгляда, а не от разворота тела — иначе стоя на месте не поймать.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -16,6 +13,11 @@ local Net = require(Shared:WaitForChild("Net"))
 local InputController = {}
 
 local chargeStart: number? = nil
+
+local function cameraLook(): Vector3
+	local camera = workspace.CurrentCamera
+	return camera and camera.CFrame.LookVector or Vector3.new(0, 0, -1)
+end
 
 local function aimDirection(): Vector3
 	local camera = workspace.CurrentCamera
@@ -32,7 +34,6 @@ local function aimDirection(): Vector3
 		math.rad(CFG.Throw.MinAngleDeg),
 		math.rad(CFG.Throw.MaxAngleDeg)
 	)
-
 	return (flat * math.cos(angle) + Vector3.new(0, math.sin(angle), 0)).Unit
 end
 
@@ -42,9 +43,7 @@ local function dodgeDirection(): Vector3
 	if humanoid and humanoid.MoveDirection.Magnitude > 0.1 then
 		return humanoid.MoveDirection.Unit
 	end
-	local camera = workspace.CurrentCamera
-	if not camera then return Vector3.new(0, 0, -1) end
-	local look = camera.CFrame.LookVector
+	local look = cameraLook()
 	local flat = Vector3.new(look.X, 0, look.Z)
 	return if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
 end
@@ -83,7 +82,7 @@ end
 
 function InputController.Catch()
 	local remote = Net.Get("CatchRequest")
-	if remote then remote:FireServer() end
+	if remote then remote:FireServer(cameraLook()) end
 end
 
 function InputController.Dodge()
