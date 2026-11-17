@@ -96,11 +96,11 @@ return {
 
 	-- Ловля = стойка. Разрешение происходит на контакте, а не в мгновенном окне.
 	Catch = {
-		StanceSeconds = 0.5,
+		StanceSeconds = 0.8,
 		Window = 0.42,
-		WhiffCooldown = 0.6,
+		WhiffCooldown = 0.35,
 		Stagger = 0.25,
-		Distance = 5.5,
+		Distance = 7.0,
 		ConeDeg = 130,
 		MaxSpeed = 130,
 		UseCameraAim = true,
