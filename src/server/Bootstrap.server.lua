@@ -231,8 +231,8 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 
 	local victimPlayer = Players:GetPlayerFromCharacter(character)
 
-	-- стойка ловли превращает попадание в ловлю
-	if CatchService.TryConvert(victimPlayer, ball) then return end
+	-- стойка ловли перехватывает попадание до урона
+	if CatchService.InterceptHit(victimPlayer, ball, character) then return end
 	if AbilityService.IsInvulnerable(victimPlayer) then return end
 
 	if AbilityService.ConsumeShield(character:GetAttribute("Team")) then
