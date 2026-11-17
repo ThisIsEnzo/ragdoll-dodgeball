@@ -328,8 +328,8 @@ local function sweepHit(ball: BasePart, from: Vector3, to: Vector3, speed: numbe
 	local record = lastThrow[ball]
 	if record and record.actor == character and os.clock() - record.at < 0.25 then return end
 
-	ball:SetAttribute("Clean", false)
 	BallService.HitDetected:Fire(ball, character, speed, result.Position)
+	ball:SetAttribute("Clean", false)
 end
 
 local function tryPickup(ball: BasePart, speed: number)

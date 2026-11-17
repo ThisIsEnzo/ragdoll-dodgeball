@@ -106,7 +106,7 @@ end
 
 function InputController.Init()
 	UserInputService.InputBegan:Connect(function(input, processed)
-		if processed then return end
+				if processed and input.KeyCode ~= Enum.KeyCode.F and input.KeyCode ~= Enum.KeyCode.LeftShift and input.KeyCode ~= Enum.KeyCode.Q then return end
 		local key = input.KeyCode
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
