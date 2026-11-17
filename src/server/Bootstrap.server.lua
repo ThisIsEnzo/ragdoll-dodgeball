@@ -1,4 +1,5 @@
--- Bootstrap v0.8.0: подключён TeamIdentityService, DisplayName для игроков.
+-- Bootstrap v0.10.0: ловля разрешается на контакте через стойку.
+-- CatchRequest принимает направление камеры, попадание сначала пробует превратиться в ловлю.
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -62,9 +63,7 @@ local function onCharacter(character: Model)
 	character:SetAttribute("IsBot", false)
 
 	local owner = Players:GetPlayerFromCharacter(character)
-	if owner then
-		character:SetAttribute("DisplayName", owner.DisplayName)
-	end
+	if owner then character:SetAttribute("DisplayName", owner.DisplayName) end
 
 	RagdollService.Prepare(character)
 	TeamIdentityService.Refresh(character)
@@ -156,9 +155,9 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, client
 	end
 end)
 
-Net.On("CatchRequest", function(player: Player)
+Net.On("CatchRequest", function(player: Player, aimDir: any)
 	if not AntiCheat.Allow(player, "Catch") then return end
-	CatchService.Try(player)
+	CatchService.Try(player, aimDir)
 end)
 
 Net.On("DodgeRequest", function(player: Player, direction: any)
@@ -227,7 +226,8 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 
 	local victimPlayer = Players:GetPlayerFromCharacter(character)
 
-	if CatchService.InGrace(victimPlayer) and CatchService.GraceCatch(victimPlayer, ball) then return end
+	-- стойка ловли превращает попадание в ловлю
+	if CatchService.TryConvert(victimPlayer, ball) then return end
 	if AbilityService.IsInvulnerable(victimPlayer) then return end
 
 	if AbilityService.ConsumeShield(character:GetAttribute("Team")) then
@@ -252,4 +252,4 @@ Players.PlayerRemoving:Connect(function(player)
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.8.0 server up: team identity, varied bots, arena shadows off")
+print("[RagdollDodgeball] v0.10.0 server up: half-court bots, ball claims, catch stance")
