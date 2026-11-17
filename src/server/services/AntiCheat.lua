@@ -1,6 +1,9 @@
--- AntiCheat v0.7.0: rate-limit, общий бюджет remote, watchdog движения,
--- детект подмены Humanoid, эскалация до кика.
--- Важно: телепорт (раунд, скамейка) не считается читом — одиночный большой скачок пропускается.
+-- AntiCheat v0.9.0: rate limit перестал быть доказательством чита.
+--
+-- Дизайн-ошибка v0.7: превышение per-action лимита копило страйк и вело к кику.
+-- Игрок, который часто жмёт F, потому что ловля не срабатывает, — не читер.
+-- Теперь превышение просто отбрасывает запрос. Страйки остаются за реальные векторы:
+-- sustained speed hack, подмена Humanoid, общий флуд ремоутов.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -16,6 +19,7 @@ local violations: { [number]: number } = {}
 local samples: { [number]: any } = {}
 local lastDecay: { [number]: number } = {}
 local humanoidCheck: { [number]: number } = {}
+local dropped: { [number]: number } = {}
 
 local function flag(player: Player, reason: string, weight: number?)
 	local userId = player.UserId
@@ -30,6 +34,7 @@ end
 function AntiCheat.Init()
 	for _, player in ipairs(Players:GetPlayers()) do
 		violations[player.UserId] = 0
+		dropped[player.UserId] = 0
 	end
 end
 
@@ -64,7 +69,12 @@ function AntiCheat.Allow(player: Player, action: string, limitPerSecond: number?
 
 	w.count += 1
 	if w.count > limit then
-		flag(player, "rate limit " .. action, 1)
+		dropped[userId] = (dropped[userId] or 0) + 1
+		if CFG.Security.RateLimitStrikes then
+			flag(player, "rate limit " .. action, 1)
+		elseif CFG.Security.LogRateLimits then
+			print(string.format("[AntiCheat] dropped %s from %s (%d in window)", action, player.Name, w.count))
+		end
 		return false
 	end
 	return true
@@ -72,6 +82,10 @@ end
 
 function AntiCheat.Violations(player: Player): number
 	return violations[player.UserId] or 0
+end
+
+function AntiCheat.Dropped(player: Player): number
+	return dropped[player.UserId] or 0
 end
 
 function AntiCheat.ValidDirection(dir: any): boolean
@@ -85,7 +99,6 @@ function AntiCheat.ValidCharge(charge: any): boolean
 	return charge >= CFG.Throw.ChargeMin - 0.05 and charge <= CFG.Throw.ChargeMax + 0.1
 end
 
--- Позиция для ping должна быть внутри арены и рядом с игроком
 function AntiCheat.ValidPingPosition(player: Player, position: any): boolean
 	if typeof(position) ~= "Vector3" then return false end
 	local character = player.Character
@@ -121,10 +134,10 @@ local function sampleMovement(player: Player, now: number)
 
 	local delta = position - record.position
 	local flat = Vector3.new(delta.X, 0, delta.Z).Magnitude
+
 	samples[player.UserId] = { position = position, at = now, streak = record.streak, safe = record.safe }
 	local entry = samples[player.UserId]
 
-	-- одиночный большой скачок = серверный телепорт, не чит
 	if flat > CFG.Security.TeleportDelta then
 		entry.streak = 0
 		entry.safe = position
@@ -157,8 +170,7 @@ local function checkHumanoid(player: Player)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return end
 
-	local maxWalk = CFG.Movement.WalkSpeed * CFG.Security.WalkSpeedTolerance
-	if humanoid.WalkSpeed > maxWalk then
+	if humanoid.WalkSpeed > CFG.Movement.WalkSpeed * CFG.Security.WalkSpeedTolerance then
 		humanoid.WalkSpeed = CFG.Movement.WalkSpeed
 		flag(player, "walkspeed tamper", 3)
 	end
@@ -171,6 +183,7 @@ end
 function AntiCheat.Start()
 	Players.PlayerAdded:Connect(function(player)
 		violations[player.UserId] = 0
+		dropped[player.UserId] = 0
 		lastDecay[player.UserId] = os.clock()
 		humanoidCheck[player.UserId] = os.clock()
 	end)
@@ -182,6 +195,7 @@ function AntiCheat.Start()
 		samples[userId] = nil
 		lastDecay[userId] = nil
 		humanoidCheck[userId] = nil
+		dropped[userId] = nil
 	end)
 
 	local interval = 1 / CFG.Security.MovementSampleHz
@@ -195,7 +209,6 @@ function AntiCheat.Start()
 		local now = os.clock()
 		for _, player in ipairs(Players:GetPlayers()) do
 			local userId = player.UserId
-
 			sampleMovement(player, now)
 
 			if now - (humanoidCheck[userId] or 0) >= CFG.Security.HumanoidCheckSeconds then

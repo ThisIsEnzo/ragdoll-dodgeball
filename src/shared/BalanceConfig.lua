@@ -1,4 +1,7 @@
--- BalanceConfig v0.8.0: палитра команд, читаемость, более щедрое окно ловли под высокий пинг.
+-- BalanceConfig v0.9.0: баллистика мяча и честный rate limit.
+-- Ball.GravityScale — мяч летит по своей гравитации, иначе дальность 17 studs при разнице команд 44.
+-- Throw.LoftDeg / PitchInfluence — бросок не уходит в пол от наклона камеры.
+-- Security.RateLimitStrikes = false — превышение лимита не считается читом.
 
 return {
 	Locale = { Default = "en", Force = "en" },
@@ -11,12 +14,8 @@ return {
 	},
 
 	Readability = {
-		Highlights = true,
-		FillTransparency = 0.9,
-		OutlineTransparency = 0,
-		NameTags = true,
-		TagMaxDistance = 150,
-		SelfArrow = true,
+		Highlights = true, FillTransparency = 0.9, OutlineTransparency = 0,
+		NameTags = true, TagMaxDistance = 150, SelfArrow = true,
 		BotNames = { "Rex", "Nova", "Bolt", "Pip", "Zed", "Milo", "Kira", "Juno", "Axel", "Vex" },
 		BotScaleJitter = 0.06,
 	},
@@ -33,8 +32,8 @@ return {
 	},
 
 	AimAssist = {
-		Enabled = true, DesktopAngleDeg = 5, MobileAngleDeg = 11,
-		Strength = 0.55, MaxDistance = 75, RequireLineOfSight = true,
+		Enabled = true, DesktopAngleDeg = 7, MobileAngleDeg = 12,
+		Strength = 0.55, MaxDistance = 80, RequireLineOfSight = true,
 	},
 
 	Perf = {
@@ -51,6 +50,8 @@ return {
 		WalkSpeedTolerance = 1.35, HumanoidCheckSeconds = 2,
 		ViolationDecaySeconds = 5, KickThreshold = 15,
 		RemoteBudgetPerSecond = 30, PingMaxDistance = 120,
+		RateLimitStrikes = false,
+		LogRateLimits = false,
 	},
 
 	FTUE = {
@@ -71,20 +72,25 @@ return {
 	},
 
 	Throw = {
-		ChargeMin = 0.15, ChargeMax = 0.90, SpeedMin = 60, SpeedMax = 130,
-		Cooldown = 0.35, PickupRadius = 3.0, HoldTimeout = 8, HoldWarn = 6,
+		ChargeMin = 0.15, ChargeMax = 0.90, SpeedMin = 65, SpeedMax = 135,
+		Cooldown = 0.35, PickupRadius = 3.2, HoldTimeout = 8, HoldWarn = 6,
 		SpawnOffset = 2.6, SpawnLift = 1.0, OriginLeeway = 8,
+		LoftDeg = 8,
+		PitchInfluence = 0.3,
+		MinAngleDeg = -10,
+		MaxAngleDeg = 35,
 	},
 
 	Carry = { ShowGlow = true, GlowBrightness = 0.55, GlowRange = 7 },
 
 	Catch = {
-		Window = 0.42, WhiffCooldown = 1.2, Stagger = 0.4,
-		Distance = 4.5, ConeDeg = 100, MaxSpeed = 110,
+		Window = 0.42, WhiffCooldown = 0.9, Stagger = 0.3,
+		Distance = 5.0, ConeDeg = 110, MaxSpeed = 125,
 	},
 
 	Ball = {
 		Size = 2.2, Density = 0.15, Elasticity = 0.35, Friction = 0.4,
+		GravityScale = 0.3,
 		HistorySeconds = 1.5, HistoryRate = 30, MinHitSpeed = 22,
 		PickupMaxSpeed = 35, RespawnBelowY = -60,
 		CarryOffset = Vector3.new(1.15, 0.35, -1.55),
@@ -166,7 +172,7 @@ return {
 	},
 
 	RateLimits = {
-		Throw = 4, Catch = 3, Dodge = 2, Ult = 1,
+		Throw = 4, Catch = 6, Dodge = 2, Ult = 1,
 		QueueJoin = 0.5, ShopBuy = 2, QuestClaim = 2, UiEvent = 4, PingRequest = 0.2,
 	},
 }

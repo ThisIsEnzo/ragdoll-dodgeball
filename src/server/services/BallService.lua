@@ -1,5 +1,10 @@
--- BallService v0.6.0: добавлено событие PickedUp для FTUE и аналитики.
--- Перенос мяча остаётся локальным визуалом, попадания считаются sweep-ом.
+-- BallService v0.9.0: у мяча своя гравитация.
+--
+-- Причина: при мировой гравитации 196 плоский бросок с высоты 4 долетает только 17 studs,
+-- а команды стоят в 44 studs друг от друга. Мяч падал, терял Clean, и ловить было нечего.
+-- VectorForce компенсирует (1 - GravityScale) мировой гравитации, оставляя мячу лёгкую дугу.
+--
+-- Перенос остаётся локальным визуалом, попадания считаются sweep-ом.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -93,6 +98,25 @@ local function attach(actor: Model, ball: BasePart)
 	return true
 end
 
+-- Компенсация гравитации: мяч летит по дуге, пригодной для площадки 90x60
+local function applyLift(ball: BasePart)
+	local scale = math.clamp(CFG.Ball.GravityScale, 0.05, 1)
+	if scale >= 1 then return end
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "LiftAnchor"
+	attachment.Parent = ball
+
+	local force = Instance.new("VectorForce")
+	force.Name = "BallLift"
+	force.Attachment0 = attachment
+	force.ApplyAtCenterOfMass = true
+	force.RelativeTo = Enum.ActuatorRelativeTo.World
+	force.Force = Vector3.new(0, ball:GetMass() * workspace.Gravity * (1 - scale), 0)
+	force.Enabled = true
+	force.Parent = ball
+end
+
 local function makeBall(position: Vector3): BasePart
 	local ball = Instance.new("Part")
 	ball.Name = "Ball"
@@ -103,6 +127,7 @@ local function makeBall(position: Vector3): BasePart
 	ball.CanCollide = true
 	ball.CanTouch = false
 	ball.CanQuery = true
+	ball.CastShadow = false
 	ball.CollisionGroup = "Balls"
 	ball.CustomPhysicalProperties = PhysicalProperties.new(
 		CFG.Ball.Density, CFG.Ball.Friction, CFG.Ball.Elasticity, 1, 1
@@ -113,6 +138,8 @@ local function makeBall(position: Vector3): BasePart
 	ball.Parent = ballsFolder
 	ball:SetNetworkOwner(nil)
 	CollectionService:AddTag(ball, "Dodgeball")
+
+	applyLift(ball)
 
 	history[ball] = {}
 	previous[ball] = position
