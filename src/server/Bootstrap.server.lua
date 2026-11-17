@@ -222,7 +222,12 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 
 	local thrower = BallService.LastThrower(ball)
 	if not thrower or thrower == character then return end
-	if thrower:GetAttribute("Team") == character:GetAttribute("Team") then return end
+
+	-- без команды нельзя ни бить, ни быть битым
+	local throwerTeam = thrower:GetAttribute("Team")
+	local victimTeam = character:GetAttribute("Team")
+	if typeof(throwerTeam) ~= "number" or typeof(victimTeam) ~= "number" then return end
+	if throwerTeam == victimTeam then return end
 
 	local victimPlayer = Players:GetPlayerFromCharacter(character)
 

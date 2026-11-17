@@ -19,7 +19,7 @@ return {
 
 	BotAI = {
 		TickSeconds = 0.15,
-		CenterMargin = 3,
+		CenterMargin = 2,
 		CenterReach = 6,
 		EdgeMargin = 4,
 		LaneSpacing = 20,
@@ -87,7 +87,7 @@ return {
 
 	Throw = {
 		ChargeMin = 0.15, ChargeMax = 0.90, SpeedMin = 65, SpeedMax = 135,
-		Cooldown = 0.35, PickupRadius = 3.2, HoldTimeout = 8, HoldWarn = 6,
+		Cooldown = 0.35, PickupRadius = 3.8, HoldTimeout = 8, HoldWarn = 6,
 		SpawnOffset = 2.6, SpawnLift = 1.0, OriginLeeway = 8,
 		LoftDeg = 8, PitchInfluence = 0.3, MinAngleDeg = -10, MaxAngleDeg = 35,
 	},
@@ -110,7 +110,7 @@ return {
 		Size = 2.2, Density = 0.15, Elasticity = 0.35, Friction = 0.4,
 		GravityScale = 0.3,
 		HistorySeconds = 1.5, HistoryRate = 30, MinHitSpeed = 22,
-		PickupMaxSpeed = 35, RespawnBelowY = -60,
+		PickupMaxSpeed = 35, PickupVerticalLimit = 6, RespawnBelowY = -60,
 		CarryOffset = Vector3.new(1.15, 0.35, -1.55),
 	},
 
