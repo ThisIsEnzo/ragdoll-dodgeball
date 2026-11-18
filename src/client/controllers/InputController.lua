@@ -1,5 +1,7 @@
--- InputController v0.10.0: ловля отправляет направление камеры.
--- Конус ловли считается от взгляда, а не от разворота тела — иначе стоя на месте не поймать.
+-- InputController: PC, mobile, gamepad. Клиент шлёт только намерения.
+-- Q отправляет выбранный в магазине ульт, а не хардкод Cannon.
+-- Игровые клавиши проверяются до выхода по processed: Shift и F Roblox
+-- помечает как обработанные стандартным скриптом управления.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -13,6 +15,16 @@ local Net = require(Shared:WaitForChild("Net"))
 local InputController = {}
 
 local chargeStart: number? = nil
+
+local GAME_KEYS = {
+	[Enum.KeyCode.F] = true,
+	[Enum.KeyCode.LeftShift] = true,
+	[Enum.KeyCode.Q] = true,
+	[Enum.KeyCode.ButtonX] = true,
+	[Enum.KeyCode.ButtonB] = true,
+	[Enum.KeyCode.ButtonY] = true,
+	[Enum.KeyCode.ButtonR2] = true,
+}
 
 local function cameraLook(): Vector3
 	local camera = workspace.CurrentCamera
@@ -92,7 +104,9 @@ end
 
 function InputController.Ult()
 	local remote = Net.Get("UltRequest")
-	if remote then remote:FireServer("Cannon") end
+	if not remote then return end
+	local selected = Players.LocalPlayer:GetAttribute("SelectedUlt")
+	remote:FireServer(if typeof(selected) == "string" then selected else "Cannon" end)
 end
 
 function InputController.Rematch()
@@ -106,8 +120,8 @@ end
 
 function InputController.Init()
 	UserInputService.InputBegan:Connect(function(input, processed)
-				if processed and input.KeyCode ~= Enum.KeyCode.F and input.KeyCode ~= Enum.KeyCode.LeftShift and input.KeyCode ~= Enum.KeyCode.Q then return end
 		local key = input.KeyCode
+		if processed and not GAME_KEYS[key] then return end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			InputController.BeginCharge(input)

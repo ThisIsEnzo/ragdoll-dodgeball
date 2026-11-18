@@ -1,13 +1,17 @@
 -- AbilityService: Hype-метр и ульты Cannon / Magnet / Wall / Ghost.
--- Эффекты ставятся атрибутами, их читает Bootstrap при броске и попадании.
+-- Уровень анлока проверяется на сервере: объявление анлока должно быть правдой.
 
 local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CFG = require(Shared:WaitForChild("BalanceConfig"))
 local Net = require(Shared:WaitForChild("Net"))
+local Resolve = require(Shared:WaitForChild("Resolve"))
+local Catalog = require(Shared:WaitForChild("ShopCatalog"))
 local BallService = require(script.Parent:WaitForChild("BallService"))
+local DataService = Resolve.Require(ServerScriptService, "DataService")
 
 local AbilityService = {}
 
@@ -32,9 +36,17 @@ function AbilityService.GetHype(player: Player): number
 	return hype[player.UserId] or 0
 end
 
+function AbilityService.UnlockedLevel(ultId: string): number
+	return Catalog.UltLevels[ultId] or 1
+end
+
 function AbilityService.Use(player: Player, ultId: any): boolean
 	if typeof(ultId) ~= "string" or not ULTS[ultId] then return false end
 	if (hype[player.UserId] or 0) < CFG.Hype.Max then return false end
+
+	local data = DataService.Get(player)
+	local level = if data then data.level else 1
+	if level < AbilityService.UnlockedLevel(ultId) then return false end
 
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
