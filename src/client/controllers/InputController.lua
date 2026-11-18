@@ -1,7 +1,7 @@
--- InputController: PC, mobile, gamepad. Клиент шлёт только намерения.
--- Q отправляет выбранный в магазине ульт, а не хардкод Cannon.
--- Игровые клавиши проверяются до выхода по processed: Shift и F Roblox
--- помечает как обработанные стандартным скриптом управления.
+-- InputController: PC, mobile, gamepad. ÐšÐ»Ð¸ÐµÐ½Ñ‚ ÑˆÐ»Ñ‘Ñ‚ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ Ð½Ð°Ð¼ÐµÑ€ÐµÐ½Ð¸Ñ.
+-- Q Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐµÑ‚ Ð²Ñ‹Ð±Ñ€Ð°Ð½Ð½Ñ‹Ð¹ Ð² Ð¼Ð°Ð³Ð°Ð·Ð¸Ð½Ðµ ÑƒÐ»ÑŒÑ‚.
+-- Ð’ÐÐ–ÐÐž: if-Ð²Ñ‹Ñ€Ð°Ð¶ÐµÐ½Ð¸Ðµ Luau Ð½ÐµÐ»ÑŒÐ·Ñ Ð¿ÐµÑ€ÐµÐ´Ð°Ð²Ð°Ñ‚ÑŒ Ð°Ñ€Ð³ÑƒÐ¼ÐµÐ½Ñ‚Ð¾Ð¼ Ð²Ñ‹Ð·Ð¾Ð²Ð° Ð±ÐµÐ· ÑÐºÐ¾Ð±Ð¾Ðº,
+-- Ð¿Ð¾ÑÑ‚Ð¾Ð¼Ñƒ ÑÐ½Ð°Ñ‡Ð°Ð»Ð° Ð¿Ñ€Ð¸ÑÐ²Ð°Ð¸Ð²Ð°ÐµÐ¼ Ð² Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½ÑƒÑŽ Ð¿ÐµÑ€ÐµÐ¼ÐµÐ½Ð½ÑƒÑŽ.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -14,7 +14,7 @@ local Net = require(Shared:WaitForChild("Net"))
 
 local InputController = {}
 
-local chargeStart: number? = nil
+local chargeStart = nil
 
 local GAME_KEYS = {
 	[Enum.KeyCode.F] = true,
@@ -26,18 +26,23 @@ local GAME_KEYS = {
 	[Enum.KeyCode.ButtonR2] = true,
 }
 
-local function cameraLook(): Vector3
+local function cameraLook()
 	local camera = workspace.CurrentCamera
-	return camera and camera.CFrame.LookVector or Vector3.new(0, 0, -1)
+	if camera then
+		return camera.CFrame.LookVector
+	end
+	return Vector3.new(0, 0, -1)
 end
 
-local function aimDirection(): Vector3
+local function aimDirection()
 	local camera = workspace.CurrentCamera
 	if not camera then return Vector3.new(0, 0, -1) end
 
 	local look = camera.CFrame.LookVector
 	local flat = Vector3.new(look.X, 0, look.Z)
-	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+	if flat.Magnitude < 0.01 then
+		flat = Vector3.new(0, 0, -1)
+	end
 	flat = flat.Unit
 
 	local pitch = math.asin(math.clamp(look.Y, -1, 1)) * CFG.Throw.PitchInfluence
@@ -49,7 +54,7 @@ local function aimDirection(): Vector3
 	return (flat * math.cos(angle) + Vector3.new(0, math.sin(angle), 0)).Unit
 end
 
-local function dodgeDirection(): Vector3
+local function dodgeDirection()
 	local character = Players.LocalPlayer.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if humanoid and humanoid.MoveDirection.Magnitude > 0.1 then
@@ -57,16 +62,22 @@ local function dodgeDirection(): Vector3
 	end
 	local look = cameraLook()
 	local flat = Vector3.new(look.X, 0, look.Z)
-	return if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
+	if flat.Magnitude > 0.01 then
+		return flat.Unit
+	end
+	return Vector3.new(0, 0, -1)
 end
 
-local function myRootPosition(): Vector3?
+local function myRootPosition()
 	local character = Players.LocalPlayer.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	return root and root.Position or nil
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root then
+		return root.Position
+	end
+	return nil
 end
 
-function InputController.BeginCharge(input: InputObject?)
+function InputController.BeginCharge()
 	if chargeStart then return end
 	chargeStart = os.clock()
 end
@@ -76,45 +87,57 @@ function InputController.ReleaseCharge()
 	local charge = math.clamp(os.clock() - chargeStart, CFG.Throw.ChargeMin, CFG.Throw.ChargeMax)
 	chargeStart = nil
 	local remote = Net.Get("ThrowRequest")
-	if remote then remote:FireServer(charge, aimDirection(), myRootPosition()) end
+	if remote then
+		remote:FireServer(charge, aimDirection(), myRootPosition())
+	end
 end
 
 function InputController.CancelCharge()
 	chargeStart = nil
 end
 
-function InputController.GetCharge(): number
+function InputController.GetCharge()
 	if not chargeStart then return 0 end
 	return math.clamp((os.clock() - chargeStart) / CFG.Throw.ChargeMax, 0, 1)
 end
 
-function InputController.IsCharging(): boolean
+function InputController.IsCharging()
 	return chargeStart ~= nil
 end
 
 function InputController.Catch()
 	local remote = Net.Get("CatchRequest")
-	if remote then remote:FireServer(cameraLook()) end
+	if remote then
+		remote:FireServer(cameraLook())
+	end
 end
 
 function InputController.Dodge()
 	local remote = Net.Get("DodgeRequest")
-	if remote then remote:FireServer(dodgeDirection()) end
+	if remote then
+		remote:FireServer(dodgeDirection())
+	end
 end
 
 function InputController.Ult()
 	local remote = Net.Get("UltRequest")
 	if not remote then return end
 	local selected = Players.LocalPlayer:GetAttribute("SelectedUlt")
-	remote:FireServer(if typeof(selected) == "string" then selected else "Cannon" end)
+	local ultId = "Cannon"
+	if typeof(selected) == "string" then
+		ultId = selected
+	end
+	remote:FireServer(ultId)
 end
 
 function InputController.Rematch()
 	local remote = Net.Get("RematchRequest")
-	if remote then remote:FireServer() end
+	if remote then
+		remote:FireServer()
+	end
 end
 
-function InputController.IsTouch(): boolean
+function InputController.IsTouch()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end
 
@@ -124,7 +147,7 @@ function InputController.Init()
 		if processed and not GAME_KEYS[key] then return end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			InputController.BeginCharge(input)
+			InputController.BeginCharge()
 		elseif key == Enum.KeyCode.F then
 			InputController.Catch()
 		elseif key == Enum.KeyCode.LeftShift then
@@ -133,7 +156,7 @@ function InputController.Init()
 			InputController.Ult()
 		elseif CFG.Mobile.GamepadEnabled then
 			if key == Enum.KeyCode.ButtonR2 then
-				InputController.BeginCharge(input)
+				InputController.BeginCharge()
 			elseif key == Enum.KeyCode.ButtonX then
 				InputController.Catch()
 			elseif key == Enum.KeyCode.ButtonB then
