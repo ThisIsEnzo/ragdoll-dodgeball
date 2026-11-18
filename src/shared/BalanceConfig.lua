@@ -102,7 +102,7 @@ return {
 		Stagger = 0.25,
 		Distance = 7.0,
 		ConeDeg = 130,
-		MaxSpeed = 130,
+		MaxSpeed = 150,
 		UseCameraAim = true,
 	},
 
@@ -118,7 +118,7 @@ return {
 		SpeedToImpulse = 0.28, MinLaunch = 14, MaxLaunch = 42,
 		VerticalScale = 0.35, MaxVertical = 12, Spin = 8,
 		DragPerFrame = 0.90, StopSpeed = 2, CatchGrace = 0.22,
-		HitSlowdown = 0.85, CatchKnockback = 26,
+		HitSlowdown = 1.0, CatchKnockback = 26,
 	},
 
 	Arena = {
