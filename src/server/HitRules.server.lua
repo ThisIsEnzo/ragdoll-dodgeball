@@ -18,6 +18,14 @@ local WINDOW = 3
 local hits = setmetatable({}, { __mode = "k" })
 
 BallService.HitDetected.Event:Connect(function(ball, character, speed)
+	local player = game:GetService("Players"):GetPlayerFromCharacter(character)
+	local attempt = player and player:GetAttribute("CatchAttemptAt")
+	local stanceAge = if typeof(attempt) == "number" then os.clock() - attempt else -1
+	print(string.format("[HitRules] hit %s spd=%d stanceAge=%.2f clean=%s",
+		character.Name, math.floor(speed), stanceAge, tostring(ball:GetAttribute("Clean"))))
+
+	task.defer(function()
+	if not ball.Parent then return end
 	if ball:GetAttribute("HeldBy") then
 		print("[HitRules] CATCH on " .. character.Name)
 		return
@@ -44,6 +52,7 @@ BallService.HitDetected.Event:Connect(function(ball, character, speed)
 	ball.AssemblyLinearVelocity = Vector3.new(flat.X, -PUSH_DOWN, flat.Z)
 	print(string.format("[HitRules] KO %d, speed %d -> %d",
 		record.count, math.floor(speed), math.floor(flat.Magnitude)))
+	end)
 end)
 
 print("[HitRules] multi-KO capped at " .. MAX_KOS)

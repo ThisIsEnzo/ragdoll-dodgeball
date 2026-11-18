@@ -28,7 +28,7 @@ return {
 		ClaimSeconds = 2.5,
 		Separation = 9,
 		SeparationPush = 7,
-		ThrowInterval = 1.5,
+		ThrowInterval = 3.0,
 		EvadeChance = 0.5,
 		EvadeDistance = 20,
 		EvadeStrafe = 12,
@@ -86,31 +86,31 @@ return {
 	},
 
 	Throw = {
-		ChargeMin = 0.15, ChargeMax = 0.90, SpeedMin = 65, SpeedMax = 135,
-		Cooldown = 0.35, PickupRadius = 3.8, HoldTimeout = 8, HoldWarn = 6,
+		ChargeMin = 0.15, ChargeMax = 0.90, SpeedMin = 40, SpeedMax = 70,
+		Cooldown = 0.35, PickupRadius = 4.5, HoldTimeout = 8, HoldWarn = 6,
 		SpawnOffset = 2.6, SpawnLift = 1.0, OriginLeeway = 8,
-		LoftDeg = 8, PitchInfluence = 0.3, MinAngleDeg = -10, MaxAngleDeg = 35,
+		LoftDeg = 9, PitchInfluence = 0.3, MinAngleDeg = -10, MaxAngleDeg = 35,
 	},
 
 	Carry = { ShowGlow = true, GlowBrightness = 0.55, GlowRange = 7 },
 
 	-- Ловля = стойка. Разрешение происходит на контакте, а не в мгновенном окне.
 	Catch = {
-		StanceSeconds = 0.8,
+		StanceSeconds = 1.2,
 		Window = 0.42,
 		WhiffCooldown = 0.35,
 		Stagger = 0.25,
-		Distance = 7.0,
+		Distance = 9.0,
 		ConeDeg = 130,
-		MaxSpeed = 130,
+		MaxSpeed = 150,
 		UseCameraAim = true,
 	},
 
 	Ball = {
-		Size = 2.2, Density = 0.15, Elasticity = 0.35, Friction = 0.4,
-		GravityScale = 0.3,
-		HistorySeconds = 1.5, HistoryRate = 30, MinHitSpeed = 22,
-		PickupMaxSpeed = 35, PickupVerticalLimit = 6, RespawnBelowY = -60,
+		Size = 2.2, Density = 0.15, Elasticity = 0.3, Friction = 0.6,
+		GravityScale = 0.15,
+		HistorySeconds = 1.5, HistoryRate = 30, MinHitSpeed = 14,
+		PickupMaxSpeed = 45, PickupVerticalLimit = 6, RespawnBelowY = -60,
 		CarryOffset = Vector3.new(1.15, 0.35, -1.55),
 	},
 
@@ -118,7 +118,7 @@ return {
 		SpeedToImpulse = 0.28, MinLaunch = 14, MaxLaunch = 42,
 		VerticalScale = 0.35, MaxVertical = 12, Spin = 8,
 		DragPerFrame = 0.90, StopSpeed = 2, CatchGrace = 0.22,
-		HitSlowdown = 0.85, CatchKnockback = 26,
+		HitSlowdown = 1.0, CatchKnockback = 26,
 	},
 
 	Arena = {
@@ -185,7 +185,7 @@ return {
 	},
 
 	Bots = {
-		ReactionMin = 0.35, ReactionMax = 0.8, AimErrorMin = 3, AimErrorMax = 10,
+		ReactionMin = 0.5, ReactionMax = 1.0, AimErrorMin = 5, AimErrorMax = 16,
 		MinRealPlayersToStart = 1,
 	},
 
