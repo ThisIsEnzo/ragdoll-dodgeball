@@ -1,19 +1,14 @@
--- GraphicsLab: fixes the blown-out render and lets you tune it live.
+-- GraphicsLab: balanced default plus live tuning.
 --
--- The screenshot showed a white-hot court: large Neon surfaces plus a low
--- bloom threshold plus ten 3.2-brightness spots turned every accent into a
--- light source that ate the floor. The SAFE preset loads automatically and
--- resolves it; the panel exists so the look can be dialled in without another
--- round of guesswork.
---
--- All writes are client-local. EXPORT prints a block you can paste into
--- WorldService to make the chosen look permanent for everyone.
+-- Previous presets swung between blown out and dull. BALANCED keeps thin
+-- neon trim glowing while large emissive slabs become lit plastic, holds
+-- exposure high enough to read the wood, and keeps bloom above the threshold
+-- where only genuine highlights bloom.
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 
@@ -26,56 +21,48 @@ local DIM      = Color3.fromRGB(158, 174, 210)
 local LIME     = Color3.fromRGB(150, 255, 60)
 local CYAN     = Color3.fromRGB(0, 226, 255)
 local AMBER    = Color3.fromRGB(255, 190, 0)
-local RED      = Color3.fromRGB(255, 58, 58)
-
--- ---------------------------------------------------------------------------
--- Parameter model
--- ---------------------------------------------------------------------------
 
 local PARAMS = {
-	{ key = "exposure",   label = "EXPOSURE",       min = 0.4, max = 3.0, step = 0.05 },
-	{ key = "ambient",    label = "AMBIENT",        min = 0,   max = 160, step = 2 },
-	{ key = "bloom",      label = "BLOOM",          min = 0,   max = 1.2, step = 0.02 },
-	{ key = "threshold",  label = "BLOOM THRESHOLD",min = 0.8, max = 3.0, step = 0.05 },
-	{ key = "neon",       label = "NEON TAMING",    min = 0,   max = 1.0, step = 0.02 },
-	{ key = "spot",       label = "SPOT POWER",     min = 0,   max = 4.0, step = 0.1 },
-	{ key = "range",      label = "SPOT REACH",     min = 20,  max = 80,  step = 1 },
-	{ key = "saturation", label = "SATURATION",     min = -0.4,max = 0.5, step = 0.02 },
-	{ key = "contrast",   label = "CONTRAST",       min = -0.2,max = 0.5, step = 0.02 },
-	{ key = "outline",    label = "OUTLINE ONLY",   min = 0,   max = 1,   step = 1 },
-	{ key = "shadows",    label = "SHADOWS",        min = 0,   max = 1,   step = 1 },
-	{ key = "crowd",      label = "CROWD",          min = 0,   max = 1,   step = 1 },
+	{ key = "exposure",   label = "EXPOSURE",        min = 0.6, max = 3.0, step = 0.05 },
+	{ key = "ambient",    label = "AMBIENT",         min = 20,  max = 170, step = 2 },
+	{ key = "bloom",      label = "BLOOM",           min = 0,   max = 1.0, step = 0.02 },
+	{ key = "threshold",  label = "BLOOM THRESHOLD", min = 1.0, max = 3.5, step = 0.05 },
+	{ key = "neon",       label = "TRIM GLOW",       min = 0,   max = 1.0, step = 0.02 },
+	{ key = "slabs",      label = "SLAB GLOW",       min = 0,   max = 1,   step = 1 },
+	{ key = "spot",       label = "SPOT POWER",      min = 0,   max = 3.0, step = 0.1 },
+	{ key = "range",      label = "SPOT REACH",      min = 24,  max = 80,  step = 1 },
+	{ key = "saturation", label = "SATURATION",      min = -0.3,max = 0.5, step = 0.02 },
+	{ key = "contrast",   label = "CONTRAST",        min = -0.2,max = 0.4, step = 0.02 },
+	{ key = "outline",    label = "OUTLINE ONLY",    min = 0,   max = 1,   step = 1 },
+	{ key = "shadows",    label = "SHADOWS",         min = 0,   max = 1,   step = 1 },
+	{ key = "crowd",      label = "CROWD",           min = 0,   max = 1,   step = 1 },
 }
 
 local PRESETS = {
-	SAFE = {
-		exposure = 1.45, ambient = 74, bloom = 0.14, threshold = 2.35,
-		neon = 0.18, spot = 1.1, range = 44, saturation = 0.1, contrast = 0.14,
-		outline = 1, shadows = 1, crowd = 1,
+	BALANCED = {
+		exposure = 1.95, ambient = 104, bloom = 0.22, threshold = 2.45,
+		neon = 0.62, slabs = 0, spot = 1.15, range = 50,
+		saturation = 0.16, contrast = 0.12, outline = 1, shadows = 1, crowd = 1,
 	},
-	CINEMATIC = {
-		exposure = 1.25, ambient = 52, bloom = 0.3, threshold = 2.0,
-		neon = 0.34, spot = 1.6, range = 52, saturation = 0.18, contrast = 0.24,
-		outline = 1, shadows = 1, crowd = 1,
+	PUNCHY = {
+		exposure = 2.15, ambient = 118, bloom = 0.34, threshold = 2.2,
+		neon = 0.8, slabs = 0, spot = 1.4, range = 56,
+		saturation = 0.26, contrast = 0.2, outline = 1, shadows = 1, crowd = 1,
 	},
-	BRIGHT = {
-		exposure = 1.9, ambient = 104, bloom = 0.1, threshold = 2.6,
-		neon = 0.12, spot = 0.8, range = 40, saturation = 0.14, contrast = 0.08,
-		outline = 1, shadows = 1, crowd = 1,
+	CALM = {
+		exposure = 1.8, ambient = 126, bloom = 0.1, threshold = 3.0,
+		neon = 0.35, slabs = 0, spot = 0.7, range = 44,
+		saturation = 0.08, contrast = 0.06, outline = 1, shadows = 1, crowd = 1,
 	},
 	MOBILE = {
-		exposure = 1.6, ambient = 92, bloom = 0, threshold = 3.0,
-		neon = 0.08, spot = 0.6, range = 36, saturation = 0.12, contrast = 0.1,
-		outline = 1, shadows = 0, crowd = 0,
+		exposure = 2.0, ambient = 132, bloom = 0, threshold = 3.5,
+		neon = 0.3, slabs = 0, spot = 0.5, range = 38,
+		saturation = 0.12, contrast = 0.08, outline = 1, shadows = 0, crowd = 0,
 	},
 }
 
 local values = {}
-for key, value in pairs(PRESETS.SAFE) do values[key] = value end
-
--- ---------------------------------------------------------------------------
--- Applying values
--- ---------------------------------------------------------------------------
+for key, value in pairs(PRESETS.BALANCED) do values[key] = value end
 
 local neonRegistry = {}
 local spotRegistry = {}
@@ -86,6 +73,7 @@ local function registerScene()
 	table.clear(neonRegistry)
 	table.clear(spotRegistry)
 	table.clear(crowdRegistry)
+	table.clear(highlightRegistry)
 
 	local decor = Workspace:FindFirstChild("WorldDecor")
 	if decor then
@@ -96,23 +84,18 @@ local function registerScene()
 					local big = math.max(s.X, s.Y, s.Z) > 8
 					table.insert(neonRegistry, { part = item, base = item.Color, big = big })
 				end
-				if item:IsDescendantOf(decor:FindFirstChild("Crowd") or decor) and item.Parent and item.Parent.Name == "Crowd" then
-					table.insert(crowdRegistry, item)
-				end
 			elseif item:IsA("SpotLight") or item:IsA("PointLight") then
 				table.insert(spotRegistry, item)
 			end
 		end
 		local crowdFolder = decor:FindFirstChild("Crowd")
 		if crowdFolder then
-			table.clear(crowdRegistry)
 			for _, item in ipairs(crowdFolder:GetDescendants()) do
 				if item:IsA("BasePart") then table.insert(crowdRegistry, item) end
 			end
 		end
 	end
 
-	table.clear(highlightRegistry)
 	for _, item in ipairs(Workspace:GetDescendants()) do
 		if item:IsA("Highlight") then table.insert(highlightRegistry, item) end
 	end
@@ -131,10 +114,10 @@ end
 local function apply()
 	Lighting.Brightness = values.exposure
 	local a = values.ambient
-	Lighting.Ambient = Color3.fromRGB(a, a * 1.06, a * 1.3)
-	Lighting.OutdoorAmbient = Color3.fromRGB(a * 1.15, a * 1.24, a * 1.5)
-	Lighting.EnvironmentDiffuseScale = 0.3
-	Lighting.EnvironmentSpecularScale = 0.45
+	Lighting.Ambient = Color3.fromRGB(a, math.min(255, a * 1.05), math.min(255, a * 1.22))
+	Lighting.OutdoorAmbient = Color3.fromRGB(math.min(255, a * 1.12), math.min(255, a * 1.2), math.min(255, a * 1.42))
+	Lighting.EnvironmentDiffuseScale = 0.35
+	Lighting.EnvironmentSpecularScale = 0.5
 	Lighting.GlobalShadows = values.shadows > 0.5
 	Lighting.ShadowSoftness = 0.35
 
@@ -147,28 +130,36 @@ local function apply()
 	grade.Saturation = values.saturation
 	grade.Contrast = values.contrast
 	grade.Brightness = 0
-	grade.TintColor = Color3.fromRGB(255, 252, 248)
+	grade.TintColor = Color3.fromRGB(255, 253, 249)
 
 	local rays = Lighting:FindFirstChild("RDRays")
-	if rays then rays.Intensity = values.bloom * 0.06 end
-
+	if rays then rays.Intensity = values.bloom * 0.05 end
 	local air = Lighting:FindFirstChild("RDAir")
 	if air then
-		air.Glare = values.bloom * 0.2
-		air.Haze = 1.1
+		air.Glare = values.bloom * 0.15
+		air.Haze = 1.0
 	end
 
-	-- Large emissive slabs become lit plastic; only thin trim keeps glowing.
-	local tame = values.neon
 	for _, entry in ipairs(neonRegistry) do
 		local part = entry.part
 		if part.Parent then
-			if entry.big or tame < 0.25 then
-				part.Material = Enum.Material.SmoothPlastic
-				part.Color = entry.base
+			local glow = values.neon
+			if entry.big then
+				if values.slabs > 0.5 then
+					part.Material = Enum.Material.Neon
+					part.Color = entry.base:Lerp(Color3.new(0, 0, 0), 1 - glow * 0.5)
+				else
+					part.Material = Enum.Material.SmoothPlastic
+					part.Color = entry.base
+				end
 			else
-				part.Material = Enum.Material.Neon
-				part.Color = entry.base:Lerp(Color3.new(0, 0, 0), 1 - tame)
+				if glow <= 0.02 then
+					part.Material = Enum.Material.SmoothPlastic
+					part.Color = entry.base
+				else
+					part.Material = Enum.Material.Neon
+					part.Color = entry.base:Lerp(Color3.new(0, 0, 0), 1 - glow)
+				end
 			end
 		end
 	end
@@ -183,13 +174,8 @@ local function apply()
 
 	for _, highlight in ipairs(highlightRegistry) do
 		if highlight.Parent then
-			if values.outline > 0.5 then
-				highlight.FillTransparency = 1
-				highlight.OutlineTransparency = 0
-			else
-				highlight.FillTransparency = 0.88
-				highlight.OutlineTransparency = 0
-			end
+			highlight.FillTransparency = if values.outline > 0.5 then 1 else 0.88
+			highlight.OutlineTransparency = 0
 		end
 	end
 
@@ -200,9 +186,7 @@ local function apply()
 	end
 end
 
--- ---------------------------------------------------------------------------
--- UI
--- ---------------------------------------------------------------------------
+-- UI ----------------------------------------------------------------------
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "RDGraphicsLab"
@@ -232,7 +216,7 @@ local toggle = make("TextButton", {
 make("UICorner", { CornerRadius = UDim.new(0, 9) }, toggle)
 
 local panel = make("Frame", {
-	Size = UDim2.fromOffset(322, 560),
+	Size = UDim2.fromOffset(324, 566),
 	Position = UDim2.new(1, -16, 0, 250),
 	AnchorPoint = Vector2.new(1, 0),
 	BackgroundColor3 = INK,
@@ -262,7 +246,7 @@ local status = make("TextLabel", {
 	TextSize = 10,
 	TextColor3 = LIME,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	Text = "SAFE preset active â€” blowout corrected",
+	Text = "BALANCED â€” trim glows, slabs do not",
 }, panel)
 
 local presetRow = make("Frame", {
@@ -271,7 +255,7 @@ local presetRow = make("Frame", {
 	BackgroundTransparency = 1,
 }, panel)
 
-local presetOrder = { "SAFE", "CINEMATIC", "BRIGHT", "MOBILE" }
+local presetOrder = { "BALANCED", "PUNCHY", "CALM", "MOBILE" }
 local presetButtons = {}
 for index, name in ipairs(presetOrder) do
 	local button = make("TextButton", {
@@ -280,7 +264,7 @@ for index, name in ipairs(presetOrder) do
 		BackgroundColor3 = SURFACE2,
 		TextColor3 = DIM,
 		Font = Enum.Font.FredokaOne,
-		TextSize = 10,
+		TextSize = 9,
 		Text = name,
 		AutoButtonColor = false,
 	}, presetRow)
@@ -306,13 +290,10 @@ local readouts = {}
 local dragging = nil
 
 local function fmt(param, value)
-	if param.step >= 1 then
-		if param.max == 1 then
-			if value > 0.5 then return "ON" end
-			return "OFF"
-		end
-		return tostring(math.floor(value + 0.5))
+	if param.max == 1 and param.step >= 1 then
+		return if value > 0.5 then "ON" else "OFF"
 	end
+	if param.step >= 1 then return tostring(math.floor(value + 0.5)) end
 	return string.format("%.2f", value)
 end
 
@@ -345,7 +326,7 @@ local function setValue(key, value, silent)
 
 	if not silent then
 		apply()
-		status.Text = "custom â€” press EXPORT to bake"
+		status.Text = "custom â€” EXPORT to bake"
 		status.TextColor3 = AMBER
 		for _, button in pairs(presetButtons) do
 			button.BackgroundColor3 = SURFACE2
@@ -413,7 +394,7 @@ for index, param in ipairs(PARAMS) do
 	make("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
 	make("UIStroke", { Color = INK, Thickness = 1.5 }, knob)
 
-	readouts[param.key] = { fill = fill, knob = knob, readout = readout, track = track }
+	readouts[param.key] = { fill = fill, knob = knob, readout = readout }
 
 	local function fromX(x)
 		local abs = track.AbsolutePosition.X
@@ -433,21 +414,6 @@ for index, param in ipairs(PARAMS) do
 
 	knob.InputBegan:Connect(begin)
 	track.InputBegan:Connect(begin)
-end
-
-local function makeAction(label, x, width, color, textColor, callback)
-	local button = make("TextButton", {
-		Size = UDim2.fromOffset(width, 30),
-		Position = UDim2.fromOffset(x, 0),
-		BackgroundColor3 = color,
-		TextColor3 = textColor,
-		Font = Enum.Font.FredokaOne,
-		TextSize = 11,
-		Text = label,
-	}, panel)
-	make("UICorner", { CornerRadius = UDim.new(0, 8) }, button)
-	button.Activated:Connect(callback)
-	return button
 end
 
 local actionRow = make("Frame", {
@@ -474,9 +440,7 @@ end
 local function applyPreset(name)
 	local preset = PRESETS[name]
 	if not preset then return end
-	for key, value in pairs(preset) do
-		setValue(key, value, true)
-	end
+	for key, value in pairs(preset) do setValue(key, value, true) end
 	apply()
 	status.Text = name .. " preset active"
 	status.TextColor3 = LIME
@@ -495,9 +459,7 @@ for name, button in pairs(presetButtons) do
 	button.Activated:Connect(function() applyPreset(name) end)
 end
 
-actionIn(actionRow, "RESET", 0, 92, SURFACE2, TEXT, function()
-	applyPreset("SAFE")
-end)
+actionIn(actionRow, "RESET", 0, 92, SURFACE2, TEXT, function() applyPreset("BALANCED") end)
 
 actionIn(actionRow, "RESCAN", 98, 92, SURFACE2, TEXT, function()
 	registerScene()
@@ -506,28 +468,22 @@ actionIn(actionRow, "RESCAN", 98, 92, SURFACE2, TEXT, function()
 	status.TextColor3 = CYAN
 end)
 
-actionIn(actionRow, "EXPORT", 196, 102, LIME, Color3.fromRGB(10, 28, 6), function()
-	print("---- GraphicsLab export: paste into WorldService ----")
+actionIn(actionRow, "EXPORT", 196, 104, LIME, Color3.fromRGB(10, 28, 6), function()
+	print("---- GraphicsLab export ----")
 	print(string.format("Lighting.Brightness = %.2f", values.exposure))
 	print(string.format("Lighting.Ambient = Color3.fromRGB(%d, %d, %d)",
-		math.floor(values.ambient), math.floor(values.ambient * 1.06), math.floor(values.ambient * 1.3)))
-	print(string.format("-- RDBloom Intensity = %.2f, Threshold = %.2f", values.bloom, values.threshold))
-	print(string.format("-- RDGrade Saturation = %.2f, Contrast = %.2f", values.saturation, values.contrast))
-	print(string.format("-- SpotLight Brightness = %.2f, Range = %d", values.spot, values.range))
-	print(string.format("-- neon taming = %.2f (big neon slabs -> SmoothPlastic)", values.neon))
-	print(string.format("-- outlineOnly = %s, shadows = %s, crowd = %s",
-		tostring(values.outline > 0.5), tostring(values.shadows > 0.5), tostring(values.crowd > 0.5)))
-	print("----------------------------------------------------")
+		math.floor(values.ambient), math.floor(values.ambient * 1.05), math.floor(values.ambient * 1.22)))
+	print(string.format("-- RDBloom Intensity=%.2f Threshold=%.2f", values.bloom, values.threshold))
+	print(string.format("-- RDGrade Saturation=%.2f Contrast=%.2f", values.saturation, values.contrast))
+	print(string.format("-- SpotLight Brightness=%.2f Range=%d", values.spot, values.range))
+	print(string.format("-- trimGlow=%.2f slabGlow=%s", values.neon, tostring(values.slabs > 0.5)))
+	print("----------------------------")
 	status.Text = "values printed to Output"
 	status.TextColor3 = LIME
 end)
 
 toggle.Activated:Connect(function()
 	panel.Visible = not panel.Visible
-	if panel.Visible then
-		panel.BackgroundTransparency = 0.3
-		TweenService:Create(panel, TweenInfo.new(0.16), { BackgroundTransparency = 0.04 }):Play()
-	end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
@@ -545,20 +501,23 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- ---------------------------------------------------------------------------
--- Boot: correct the blowout immediately, then keep the scene registered
--- ---------------------------------------------------------------------------
-
 local function boot()
 	registerScene()
 	for key, value in pairs(values) do setValue(key, value, true) end
-	applyPreset("SAFE")
+	applyPreset("BALANCED")
 end
 
 task.spawn(function()
 	Workspace:WaitForChild("WorldDecor", 40)
 	task.wait(0.5)
 	boot()
+	local decor = Workspace:FindFirstChild("WorldDecor")
+	if decor then
+		decor:GetAttributeChangedSignal("Theme"):Connect(function()
+			task.wait(0.7)
+			boot()
+		end)
+	end
 end)
 
 boot()
@@ -566,9 +525,7 @@ boot()
 Workspace.DescendantAdded:Connect(function(item)
 	if item:IsA("Highlight") then
 		table.insert(highlightRegistry, item)
-		if values.outline > 0.5 then
-			item.FillTransparency = 1
-		end
+		item.FillTransparency = if values.outline > 0.5 then 1 else 0.88
 	elseif item:IsA("SpotLight") or item:IsA("PointLight") then
 		table.insert(spotRegistry, item)
 		item.Brightness = values.spot
@@ -577,13 +534,4 @@ Workspace.DescendantAdded:Connect(function(item)
 	end
 end)
 
-local decorWatcher = Workspace:FindFirstChild("WorldDecor")
-if decorWatcher then
-	decorWatcher:GetAttributeChangedSignal("Theme"):Connect(function()
-		task.wait(0.6)
-		registerScene()
-		apply()
-	end)
-end
-
-print("[GraphicsLab] SAFE preset applied â€” bloom, neon slabs and spots tamed. GRAPHICS button top-right.")
+print("[GraphicsLab] BALANCED applied â€” trim glows, slabs lit, no blowout")

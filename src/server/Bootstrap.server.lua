@@ -1,7 +1,11 @@
 -- Bootstrap: wiring and rule enforcement.
--- Audit fixes: players are held to their own half, dodge is a sustained
--- impulse instead of a single frame, catch interception runs for bots too,
--- and ability readiness is published as attributes for the HUD.
+--
+-- Half-court fix: the old clamp teleported a violating player to
+-- limit - sign * 0.5, which lands on the WRONG side of the line. The player
+-- was still violating next tick, so it teleported again every frame and
+-- froze them at centre. The target now pushes into their own half, a soft
+-- velocity nudge handles shallow crossings, and only a deep violation
+-- triggers a teleport. No loop, no rubber-banding at the line.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -161,7 +165,6 @@ Net.On("CatchRequest", function(player, aimDir)
 	CatchService.Try(player, aimDir)
 end)
 
--- Dodge is applied across several frames so ground friction cannot eat it.
 Net.On("DodgeRequest", function(player, direction)
 	if not AntiCheat.Allow(player, "Dodge") then return end
 	local now = os.clock()
@@ -195,8 +198,7 @@ Net.On("UltRequest", function(player, ultId)
 	if not AntiCheat.Allow(player, "Ult") then return end
 	local used = AbilityService.Use(player, ultId)
 	if not used then
-		local hype = AbilityService.GetHype(player)
-		Net.FireClient("HypeState", player, hype, CFG.Hype.Max)
+		Net.FireClient("HypeState", player, AbilityService.GetHype(player), CFG.Hype.Max)
 	end
 end)
 
@@ -246,7 +248,6 @@ BallService.HitDetected.Event:Connect(function(ball, character, speed)
 	if typeof(throwerTeam) ~= "number" or typeof(victimTeam) ~= "number" then return end
 	if throwerTeam == victimTeam then return end
 
-	-- Catch resolves before damage, for players and bots alike.
 	if CatchService.Intercept(character, ball) then return end
 
 	local victimPlayer = Players:GetPlayerFromCharacter(character)
@@ -269,8 +270,14 @@ BallService.HitDetected.Event:Connect(function(ball, character, speed)
 	end
 end)
 
--- Half-court rule for human players. Bots clamp themselves.
+-- ---------------------------------------------------------------------------
+-- Half-court rule, rewritten so it cannot trap a player on the line.
+-- depth = how far the player is inside their own half. Positive is legal.
+-- ---------------------------------------------------------------------------
+
 local halfAccumulator = 0
+local warnUntil = {}
+
 RunService.Heartbeat:Connect(function(dt)
 	if not CFG.Rules.EnforceHalfCourt then return end
 	halfAccumulator += dt
@@ -282,7 +289,6 @@ RunService.Heartbeat:Connect(function(dt)
 	local state = RoundService.State
 	if state ~= "Live" and state ~= "SuddenDeath" then return end
 
-	local halfD = CFG.Arena.Depth * 0.5
 	local halfW = CFG.Arena.Width * 0.5
 	local band = CFG.Rules.NeutralBand
 
@@ -291,21 +297,39 @@ RunService.Heartbeat:Connect(function(dt)
 		if character and not character:GetAttribute("Benched") and not character:GetAttribute("Ragdolled") then
 			local team = character:GetAttribute("Team")
 			local root = character:FindFirstChild("HumanoidRootPart")
-			if typeof(team) == "number" and root then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if typeof(team) == "number" and root and humanoid and humanoid.Health > 0 then
 				local sign = -1
 				if team == 2 then sign = 1 end
+
 				local pos = root.Position
-				local limit = sign * band
-				local beyond = false
-				if sign == -1 and pos.Z > limit then beyond = true end
-				if sign == 1 and pos.Z < limit then beyond = true end
-				if beyond then
-					local clamped = Vector3.new(
-						math.clamp(pos.X, -halfW + 3, halfW - 3),
-						pos.Y,
-						limit - sign * 0.5)
-					character:PivotTo(CFrame.new(clamped) * CFrame.Angles(0, select(2, root.CFrame:ToEulerAnglesYXZ()), 0))
-					root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+				local depth = pos.Z * sign
+				local legal = band
+
+				if depth < legal then
+					local overshoot = legal - depth
+					local safeZ = sign * (legal + 1.6)
+
+					if overshoot > 4 then
+						-- deep violation: place them safely inside their own half
+						local target = Vector3.new(
+							math.clamp(pos.X, -halfW + 4, halfW - 4),
+							pos.Y,
+							safeZ)
+						local _, yaw = root.CFrame:ToEulerAnglesYXZ()
+						character:PivotTo(CFrame.new(target) * CFrame.Angles(0, yaw, 0))
+						root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+					else
+						-- shallow crossing: nudge back, never teleport
+						local v = root.AssemblyLinearVelocity
+						local push = math.clamp(overshoot * 9, 6, 26)
+						root.AssemblyLinearVelocity = Vector3.new(v.X * 0.6, v.Y, sign * push)
+					end
+
+					if (warnUntil[player.UserId] or 0) < os.clock() then
+						warnUntil[player.UserId] = os.clock() + 2
+						Net.FireClient("FXEvent", "halfwarn", character)
+					end
 				end
 			end
 		end
@@ -315,6 +339,7 @@ end)
 Players.PlayerRemoving:Connect(function(player)
 	throwCooldown[player.UserId] = nil
 	dodgeCooldown[player.UserId] = nil
+	warnUntil[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] audit build: half-court rule, live-throw hits, bot catching, sustained dodge")
+print("[RagdollDodgeball] half-court fixed: soft nudge, safe-side teleport, no centre trap")
