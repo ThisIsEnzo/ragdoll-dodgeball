@@ -1,13 +1,24 @@
--- BalanceConfig v0.10.0: секция BotAI (половины, коридоры, заявки) и ловля как стойка.
+-- BalanceConfig: single source of balance numbers.
+-- Audit changes: rolling balls can no longer score KOs, players are held to
+-- their own half, benches sit inside the venue, dodge is a sustained impulse.
 
 return {
 	Locale = { Default = "en", Force = "en" },
 
 	Teams = {
-		[1] = { name = "BLUE", color = Color3.fromRGB(46, 155, 255), dark = Color3.fromRGB(22, 78, 148) },
-		[2] = { name = "RED", color = Color3.fromRGB(255, 70, 60), dark = Color3.fromRGB(148, 34, 28) },
-		Self = Color3.fromRGB(124, 255, 79),
+		[1] = { name = "BLUE", color = Color3.fromRGB(0, 132, 255), dark = Color3.fromRGB(16, 62, 142) },
+		[2] = { name = "RED", color = Color3.fromRGB(255, 58, 58), dark = Color3.fromRGB(148, 26, 34) },
+		Self = Color3.fromRGB(150, 255, 60),
 		Neutral = Color3.fromRGB(150, 160, 190),
+	},
+
+	Rules = {
+		EnforceHalfCourt = true,
+		HalfClampHz = 12,
+		NeutralBand = 2.5,
+		ThrowLiveWindow = 4.5,
+		BenchInsetX = 8,
+		BenchInsetZ = 10,
 	},
 
 	Readability = {
@@ -29,10 +40,13 @@ return {
 		Separation = 9,
 		SeparationPush = 7,
 		ThrowInterval = 3.0,
-		EvadeChance = 0.5,
+		EvadeChance = 0.35,
 		EvadeDistance = 20,
 		EvadeStrafe = 12,
 		WanderRadius = 5,
+		CatchChance = 0.55,
+		CatchRange = 13,
+		CatchReaction = 0.18,
 	},
 
 	Mobile = {
@@ -60,8 +74,8 @@ return {
 	},
 
 	Security = {
-		MovementSampleHz = 5, SpeedTolerance = 1.5, SpeedSlack = 10,
-		TeleportDelta = 60, SustainedViolations = 3,
+		MovementSampleHz = 5, SpeedTolerance = 1.8, SpeedSlack = 16,
+		TeleportDelta = 60, SustainedViolations = 4,
 		WalkSpeedTolerance = 1.35, HumanoidCheckSeconds = 2,
 		ViolationDecaySeconds = 5, KickThreshold = 15,
 		RemoteBudgetPerSecond = 30, PingMaxDistance = 120,
@@ -81,8 +95,9 @@ return {
 	},
 
 	Movement = {
-		WalkSpeed = 18, JumpPower = 50, DodgeSpeed = 45,
-		DodgeTime = 0.30, DodgeIFrames = 0.25, DodgeCooldown = 3.5,
+		WalkSpeed = 18, JumpPower = 50,
+		DodgeSpeed = 52, DodgeDuration = 0.22,
+		DodgeLift = 14, DodgeIFrames = 0.35, DodgeCooldown = 2.6,
 	},
 
 	Throw = {
@@ -94,22 +109,17 @@ return {
 
 	Carry = { ShowGlow = true, GlowBrightness = 0.55, GlowRange = 7 },
 
-	-- Ловля = стойка. Разрешение происходит на контакте, а не в мгновенном окне.
 	Catch = {
-		StanceSeconds = 1.2,
-		Window = 0.42,
-		WhiffCooldown = 0.35,
-		Stagger = 0.25,
-		Distance = 9.0,
-		ConeDeg = 130,
-		MaxSpeed = 150,
+		StanceSeconds = 1.2, Window = 0.42, WhiffCooldown = 0.35,
+		Stagger = 0.25, Distance = 9.0, ConeDeg = 130, MaxSpeed = 150,
 		UseCameraAim = true,
 	},
 
 	Ball = {
 		Size = 2.2, Density = 0.15, Elasticity = 0.3, Friction = 0.6,
 		GravityScale = 0.15,
-		HistorySeconds = 1.5, HistoryRate = 30, MinHitSpeed = 14,
+		HistorySeconds = 1.5, HistoryRate = 30,
+		MinHitSpeed = 30,
 		PickupMaxSpeed = 45, PickupVerticalLimit = 6, RespawnBelowY = -60,
 		CarryOffset = Vector3.new(1.15, 0.35, -1.55),
 	},
@@ -123,9 +133,9 @@ return {
 
 	Arena = {
 		Width = 90, Depth = 60, WallHeight = 24, WallThickness = 2, CeilingHeight = 26,
-		FloorColor = Color3.fromRGB(196, 148, 90),
-		LineColor = Color3.fromRGB(240, 240, 245),
-		WallColor = Color3.fromRGB(130, 180, 225),
+		FloorColor = Color3.fromRGB(214, 172, 118),
+		LineColor = Color3.fromRGB(252, 252, 255),
+		WallColor = Color3.fromRGB(120, 140, 175),
 		SuddenColor = Color3.fromRGB(230, 70, 60),
 		BenchColor = Color3.fromRGB(60, 72, 110),
 		ShrinkScale = 0.75, ShrinkTime = 0.6,
@@ -149,11 +159,7 @@ return {
 		AutosaveSeconds = 60, LockSeconds = 900,
 	},
 
-	Unlocks = {
-		[5] = "Curve Throw", [6] = "Quick Hands", [8] = "Cannon Ult", [10] = "Fleet Foot",
-		[12] = "Bounce Throw", [15] = "Magnet Ult", [18] = "Grip", [20] = "Heavy Throw",
-		[25] = "Wall Ult", [28] = "Second Wind", [30] = "Ghost Ult",
-	},
+	Unlocks = { [15] = "Magnet Ult", [25] = "Wall Ult", [30] = "Ghost Ult" },
 
 	QuestPool = {
 		{ id = "ko", stat = "kos", target = 12 },
@@ -169,7 +175,7 @@ return {
 		RoundEnd = 4, MatchEnd = 8, RagdollTime = 2.5, MaxActiveRagdolls = 8,
 	},
 
-	Hype = { Hit = 25, Catch = 40, Revive = 20, RoundWin = 15, Max = 100 },
+	Hype = { Hit = 34, Catch = 45, Revive = 25, RoundWin = 20, Max = 100 },
 
 	Economy = {
 		MatchWin = 140, MatchLoss = 60, PartyBonus = 0.20,
@@ -179,9 +185,7 @@ return {
 
 	XP = {
 		Win = 120, Loss = 70, Hit = 8, Catch = 20, Revive = 15,
-		ToNext = function(level: number): number
-			return math.floor(200 + 60 * level ^ 1.35)
-		end,
+		ToNext = function(level) return math.floor(200 + 60 * level ^ 1.35) end,
 	},
 
 	Bots = {
@@ -190,7 +194,7 @@ return {
 	},
 
 	RateLimits = {
-		Throw = 4, Catch = 6, Dodge = 2, Ult = 1,
+		Throw = 4, Catch = 6, Dodge = 3, Ult = 2,
 		QueueJoin = 0.5, ShopBuy = 2, QuestClaim = 2, UiEvent = 4, PingRequest = 0.2,
 	},
 }

@@ -1,5 +1,7 @@
--- ArenaService v0.8.0: CastShadow выключается при постройке.
--- PerfSetup в Edit-режиме не мог этого сделать: арена создаётся в рантайме, после Edit.
+-- ArenaService: court geometry and markers.
+-- Audit fix: bench markers used to sit at x = +/- (halfWidth + 9), outside the
+-- walls, so knocked-out players were teleported out of the building. Benches
+-- now live inside the court, in the back corner of each team half.
 
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -13,12 +15,11 @@ local Resolve = require(Shared:WaitForChild("Resolve"))
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 
 local ArenaService = {}
-
-local walls: { any } = {}
+local walls = {}
 local shrinking = false
-local shrinkAlpha = 0
+local alpha = 0
 
-local function part(name: string, size: Vector3, position: Vector3, color: Color3, parent: Instance)
+local function part(name, size, position, color, parent)
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
@@ -36,7 +37,7 @@ local function part(name: string, size: Vector3, position: Vector3, color: Color
 	return p
 end
 
-local function marker(name: string, position: Vector3, parent: Instance)
+local function marker(name, position, parent)
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = Vector3.new(2, 1, 2)
@@ -45,10 +46,21 @@ local function marker(name: string, position: Vector3, parent: Instance)
 	p.CanCollide = false
 	p.CanTouch = false
 	p.CanQuery = false
-	p.CastShadow = false
 	p.Transparency = 1
 	p.Parent = parent
 	return p
+end
+
+function ArenaService.BenchPosition(team)
+	local halfW = CFG.Arena.Width * 0.5
+	local halfD = CFG.Arena.Depth * 0.5
+	local sign = -1
+	if team == 2 then sign = 1 end
+	return Vector3.new(
+		sign * (halfW - CFG.Rules.BenchInsetX),
+		2.5,
+		sign * (halfD - CFG.Rules.BenchInsetZ)
+	)
 end
 
 local function build()
@@ -61,20 +73,7 @@ local function build()
 	local floor = part("Floor", Vector3.new(A.Width, 1, A.Depth), Vector3.new(0, 0.5, 0), A.FloorColor, arena)
 	floor.Material = Enum.Material.Wood
 
-	-- Разметка в цветах команд: сразу видно, чья половина
-	local halfD = A.Depth * 0.5
-	part("BlueHalfLine", Vector3.new(A.Width, 0.06, 1.2),
-		Vector3.new(0, 1.04, -(halfD - 2)), CFG.Teams[1].color, arena).CanCollide = false
-	part("RedHalfLine", Vector3.new(A.Width, 0.06, 1.2),
-		Vector3.new(0, 1.04, halfD - 2), CFG.Teams[2].color, arena).CanCollide = false
-
-	part("CenterLine", Vector3.new(A.Width, 0.05, 0.6), Vector3.new(0, 1.03, 0), A.LineColor, arena).CanCollide = false
-	local circle = part("CenterCircle", Vector3.new(14, 0.05, 14), Vector3.new(0, 1.02, 0), A.LineColor, arena)
-	circle.Shape = Enum.PartType.Cylinder
-	circle.Orientation = Vector3.new(0, 0, 90)
-	circle.CanCollide = false
-
-	local halfW = A.Width * 0.5
+	local halfW, halfD = A.Width * 0.5, A.Depth * 0.5
 	local t, h = A.WallThickness, A.WallHeight
 
 	local specs = {
@@ -87,8 +86,8 @@ local function build()
 	for _, spec in ipairs(specs) do
 		local wall = part(spec[1], spec[2], spec[3], A.WallColor, arena)
 		wall.Material = Enum.Material.Glass
-		wall.Transparency = 0.55
-		wall.Reflectance = 0.08
+		wall.Transparency = 0.75
+		wall.Reflectance = 0.05
 		table.insert(walls, { part = wall, basePos = spec[3], baseSize = spec[2] })
 	end
 
@@ -98,19 +97,25 @@ local function build()
 
 	for team = 1, 2 do
 		local entry = CFG.Teams[team]
-		local folder = Instance.new("Folder")
-		folder.Name = "Team" .. team .. "Spawns"
-		folder.Parent = arena
-		local z = if team == 1 then -(halfD - 8) else (halfD - 8)
+		local sign = -1
+		if team == 2 then sign = 1 end
+
+		local spawns = Instance.new("Folder")
+		spawns.Name = "Team" .. team .. "Spawns"
+		spawns.Parent = arena
+		local z = sign * (halfD - 8)
 		for i = -1, 1 do
-			marker("Spawn" .. (i + 2), Vector3.new(i * 10, 2, z), folder)
+			marker("Spawn" .. (i + 2), Vector3.new(i * 10, 2, z), spawns)
 		end
 
-		local benchX = if team == 1 then -(halfW + 9) else (halfW + 9)
-		local bench = part("BenchPlatform" .. team, Vector3.new(14, 1, 24),
-			Vector3.new(benchX, 2, 0), entry.dark, arena)
-		bench.Material = Enum.Material.Concrete
-		marker("Bench" .. team, Vector3.new(benchX, 3.5, 0), arena)
+		local benchPos = ArenaService.BenchPosition(team)
+		marker("Bench" .. team, benchPos, arena)
+
+		local pad = part("BenchPad" .. team, Vector3.new(16, 0.6, 6),
+			Vector3.new(benchPos.X, 1.3, benchPos.Z), entry.dark, arena)
+		pad.Material = Enum.Material.Fabric
+		part("BenchBack" .. team, Vector3.new(16, 2.6, 0.5),
+			Vector3.new(benchPos.X, 2.6, benchPos.Z + sign * 3), entry.color, arena)
 	end
 
 	local spawns = workspace:FindFirstChild("BallSpawns")
@@ -123,25 +128,35 @@ local function build()
 		end
 	end
 
-	print(string.format("[Arena] Court built %dx%d, shadows off, team halves marked", A.Width, A.Depth))
+	print("[Arena] court built, benches inside the venue")
 end
 
-local function adoptExisting(arena: Instance)
+local function adopt(arena)
 	for _, child in ipairs(arena:GetDescendants()) do
 		if child:IsA("BasePart") then
 			child.CastShadow = false
 			if string.find(child.Name, "^Wall") then
+				child.Transparency = 0.75
 				table.insert(walls, { part = child, basePos = child.Position, baseSize = child.Size })
 			end
 		end
 	end
-	print("[Arena] Existing Arena adopted, shadows off. Walls for sudden death: " .. #walls)
+	for team = 1, 2 do
+		local existing = arena:FindFirstChild("Bench" .. team)
+		local pos = ArenaService.BenchPosition(team)
+		if existing then
+			existing.Position = pos
+		else
+			marker("Bench" .. team, pos, arena)
+		end
+	end
+	print("[Arena] existing arena adopted, benches relocated inside")
 end
 
 function ArenaService.Init()
 	Collision.Setup()
 	local existing = workspace:FindFirstChild("Arena")
-	if existing then adoptExisting(existing) else build() end
+	if existing then adopt(existing) else build() end
 end
 
 function ArenaService.Start()
@@ -151,16 +166,19 @@ function ArenaService.Start()
 
 	RunService.Heartbeat:Connect(function(dt)
 		if #walls == 0 then return end
-		local target = if shrinking then 1 else 0
-		if math.abs(shrinkAlpha - target) < 0.001 then return end
+		local target = 0
+		if shrinking then target = 1 end
+		if math.abs(alpha - target) < 0.001 then return end
 
 		local step = dt / math.max(CFG.Arena.ShrinkTime, 0.05)
-		shrinkAlpha = if shrinking
-			then math.min(1, shrinkAlpha + step)
-			else math.max(0, shrinkAlpha - step)
+		if shrinking then
+			alpha = math.min(1, alpha + step)
+		else
+			alpha = math.max(0, alpha - step)
+		end
 
-		local scale = 1 - (1 - CFG.Arena.ShrinkScale) * shrinkAlpha
-		local color = CFG.Arena.WallColor:Lerp(CFG.Arena.SuddenColor, shrinkAlpha)
+		local scale = 1 - (1 - CFG.Arena.ShrinkScale) * alpha
+		local color = CFG.Arena.WallColor:Lerp(CFG.Arena.SuddenColor, alpha)
 
 		for _, entry in ipairs(walls) do
 			local p = entry.part
