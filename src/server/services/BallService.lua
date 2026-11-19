@@ -1,10 +1,7 @@
--- BallService v0.9.0: у мяча своя гравитация.
---
--- Причина: при мировой гравитации 196 плоский бросок с высоты 4 долетает только 17 studs,
--- а команды стоят в 44 studs друг от друга. Мяч падал, терял Clean, и ловить было нечего.
--- VectorForce компенсирует (1 - GravityScale) мировой гравитации, оставляя мячу лёгкую дугу.
---
--- Перенос остаётся локальным визуалом, попадания считаются sweep-ом.
+-- BallService: ball lifecycle, carry, sweep hits, pickup.
+-- Audit fix: a slow rolling ball used to score KOs because MinHitSpeed was 14.
+-- A hit now requires both enough speed and a recent throw, so loose balls
+-- rolling across the floor are harmless until someone picks them up.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -20,23 +17,23 @@ local BallService = {}
 BallService.HitDetected = Instance.new("BindableEvent")
 BallService.PickedUp = Instance.new("BindableEvent")
 
-local ballsFolder: Folder? = nil
-local heldFolder: Folder? = nil
-local holder: { [BasePart]: Model } = {}
-local heldBy: { [Model]: BasePart } = {}
-local heldSince: { [BasePart]: number } = {}
-local history: { [BasePart]: { { t: number, p: Vector3 } } } = {}
-local previous: { [BasePart]: Vector3 } = {}
-local slowSince: { [BasePart]: number } = {}
-local lastThrow: { [BasePart]: { actor: Model, at: number } } = {}
-local spawnPoints: { Vector3 } = {}
+local ballsFolder = nil
+local heldFolder = nil
+local holder = {}
+local heldBy = {}
+local heldSince = {}
+local history = {}
+local previous = {}
+local slowSince = {}
+local lastThrow = {}
+local spawnPoints = {}
 local accumulator = 0
 
 local sweepParams = RaycastParams.new()
 sweepParams.FilterType = Enum.RaycastFilterType.Exclude
 sweepParams.IgnoreWater = true
 
-local function isActorAlive(character: Model): boolean
+local function alive(character)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then return false end
 	if character:GetAttribute("Benched") then return false end
@@ -44,11 +41,11 @@ local function isActorAlive(character: Model): boolean
 	return true
 end
 
-local function setCarrying(actor: Model?, value: boolean)
+local function setCarrying(actor, value)
 	if actor and actor.Parent then actor:SetAttribute("Carrying", value) end
 end
 
-local function clearTables(ball: BasePart)
+local function clearTables(ball)
 	local actor = holder[ball]
 	if actor then
 		heldBy[actor] = nil
@@ -58,7 +55,7 @@ local function clearTables(ball: BasePart)
 	heldSince[ball] = nil
 end
 
-local function release(ball: BasePart)
+local function release(ball)
 	clearTables(ball)
 	ball:SetAttribute("HeldBy", nil)
 	if not ball:IsDescendantOf(game) then return end
@@ -71,7 +68,7 @@ local function release(ball: BasePart)
 	pcall(function() ball:SetNetworkOwner(nil) end)
 end
 
-local function attach(actor: Model, ball: BasePart)
+local function attach(actor, ball)
 	if heldBy[actor] then return false end
 	if holder[ball] then release(ball) end
 
@@ -98,15 +95,12 @@ local function attach(actor: Model, ball: BasePart)
 	return true
 end
 
--- Компенсация гравитации: мяч летит по дуге, пригодной для площадки 90x60
-local function applyLift(ball: BasePart)
+local function applyLift(ball)
 	local scale = math.clamp(CFG.Ball.GravityScale, 0.05, 1)
 	if scale >= 1 then return end
-
 	local attachment = Instance.new("Attachment")
 	attachment.Name = "LiftAnchor"
 	attachment.Parent = ball
-
 	local force = Instance.new("VectorForce")
 	force.Name = "BallLift"
 	force.Attachment0 = attachment
@@ -117,7 +111,7 @@ local function applyLift(ball: BasePart)
 	force.Parent = ball
 end
 
-local function makeBall(position: Vector3): BasePart
+local function makeBall(position)
 	local ball = Instance.new("Part")
 	ball.Name = "Ball"
 	ball.Shape = Enum.PartType.Ball
@@ -130,8 +124,7 @@ local function makeBall(position: Vector3): BasePart
 	ball.CastShadow = false
 	ball.CollisionGroup = "Balls"
 	ball.CustomPhysicalProperties = PhysicalProperties.new(
-		CFG.Ball.Density, CFG.Ball.Friction, CFG.Ball.Elasticity, 1, 1
-	)
+		CFG.Ball.Density, CFG.Ball.Friction, CFG.Ball.Elasticity, 1, 1)
 	ball.CFrame = CFrame.new(position)
 	ball:SetAttribute("Clean", false)
 	ball:SetAttribute("Uncatchable", false)
@@ -140,7 +133,6 @@ local function makeBall(position: Vector3): BasePart
 	CollectionService:AddTag(ball, "Dodgeball")
 
 	applyLift(ball)
-
 	history[ball] = {}
 	previous[ball] = position
 	slowSince[ball] = os.clock()
@@ -184,11 +176,11 @@ function BallService.Init()
 
 	local markers = workspace:FindFirstChild("BallSpawns")
 	if markers then
-		for _, part in ipairs(markers:GetChildren()) do
-			if part:IsA("BasePart") then
-				table.insert(spawnPoints, part.Position)
-				part.Transparency = 1
-				part.CanCollide = false
+		for _, p in ipairs(markers:GetChildren()) do
+			if p:IsA("BasePart") then
+				table.insert(spawnPoints, p.Position)
+				p.Transparency = 1
+				p.CanCollide = false
 			end
 		end
 	end
@@ -205,48 +197,50 @@ function BallService.SpawnAll()
 	end
 	if heldFolder then heldFolder:ClearAllChildren() end
 	if ballsFolder then ballsFolder:ClearAllChildren() end
-	table.clear(holder); table.clear(heldBy); table.clear(heldSince)
+	table.clear(holder)
+	table.clear(heldBy)
+	table.clear(heldSince)
 	for _, position in ipairs(spawnPoints) do
 		makeBall(position + Vector3.new(0, 3, 0))
 	end
 end
 
-function BallService.GetHeld(actor: Model): BasePart?
-	return heldBy[actor]
-end
+function BallService.GetHeld(actor) return heldBy[actor] end
+function BallService.GiveBall(actor, ball) return attach(actor, ball) end
 
-function BallService.GiveBall(actor: Model, ball: BasePart): boolean
-	return attach(actor, ball)
-end
-
-function BallService.ForceRelease(actor: Model)
+function BallService.ForceRelease(actor)
 	local ball = heldBy[actor]
-	if ball then
-		local root = actor:FindFirstChild("HumanoidRootPart") :: BasePart?
-		release(ball)
-		if root then
-			ball.CFrame = CFrame.new(root.Position + Vector3.new(0, 1.5, 0))
-			previous[ball] = ball.Position
-		end
-		ball:SetAttribute("Clean", false)
-		history[ball] = {}
+	if not ball then return end
+	local root = actor:FindFirstChild("HumanoidRootPart")
+	release(ball)
+	if root then
+		ball.CFrame = CFrame.new(root.Position + Vector3.new(0, 1.5, 0))
+		previous[ball] = ball.Position
 	end
+	ball:SetAttribute("Clean", false)
+	history[ball] = {}
+	lastThrow[ball] = nil
 end
 
-function BallService.LastThrower(ball: BasePart): (Model?, number?)
+function BallService.LastThrower(ball)
 	local record = lastThrow[ball]
 	if record then return record.actor, record.at end
 	return nil, nil
 end
 
-function BallService.Throw(
-	actor: Model, ball: BasePart, direction: Vector3,
-	charge: number, speedMul: number?, clientOrigin: Vector3?
-): boolean
+-- A ball is dangerous only while it is still a live throw.
+function BallService.IsLive(ball)
+	local record = lastThrow[ball]
+	if not record then return false end
+	if os.clock() - record.at > CFG.Rules.ThrowLiveWindow then return false end
+	if not record.actor or not record.actor.Parent then return false end
+	return ball.AssemblyLinearVelocity.Magnitude >= CFG.Ball.MinHitSpeed
+end
+
+function BallService.Throw(actor, ball, direction, charge, speedMul, clientOrigin)
 	if holder[ball] ~= actor then return false end
 	if direction.Magnitude < 0.01 then return false end
-
-	local root = actor:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local root = actor:FindFirstChild("HumanoidRootPart")
 	if not root then return false end
 
 	local dir = direction.Unit
@@ -268,7 +262,6 @@ function BallService.Throw(
 	placeParams.FilterType = Enum.RaycastFilterType.Exclude
 	placeParams.FilterDescendantsInstances = { actor, ballsFolder }
 	placeParams.IgnoreWater = true
-
 	if workspace:Raycast(origin, target - origin, placeParams) then
 		target = origin + dir * 0.9
 	end
@@ -286,7 +279,7 @@ function BallService.Throw(
 	return true
 end
 
-function BallService.SampleAt(ball: BasePart, t: number): Vector3?
+function BallService.SampleAt(ball, t)
 	local samples = history[ball]
 	if not samples or #samples == 0 then return nil end
 	if t <= samples[1].t then return samples[1].p end
@@ -300,7 +293,7 @@ function BallService.SampleAt(ball: BasePart, t: number): Vector3?
 	return samples[#samples].p
 end
 
-function BallService.NearestFree(position: Vector3, maxDistance: number): BasePart?
+function BallService.NearestFree(position, maxDistance)
 	local best, bestDist = nil, maxDistance
 	for _, ball in ipairs(CollectionService:GetTagged("Dodgeball")) do
 		if ball:IsA("BasePart") and not holder[ball] and ball:IsDescendantOf(workspace) then
@@ -311,9 +304,27 @@ function BallService.NearestFree(position: Vector3, maxDistance: number): BasePa
 	return best
 end
 
-local function sweepHit(ball: BasePart, from: Vector3, to: Vector3, speed: number)
+function BallService.IncomingThreat(root, range)
+	for _, ball in ipairs(CollectionService:GetTagged("Dodgeball")) do
+		if ball:IsA("BasePart") and ball:IsDescendantOf(workspace) and not holder[ball] then
+			if BallService.IsLive(ball) then
+				local toTarget = root.Position - ball.Position
+				local d = toTarget.Magnitude
+				if d > 1 and d < range then
+					if ball.AssemblyLinearVelocity.Unit:Dot(toTarget.Unit) > 0.86 then
+						return ball, d
+					end
+				end
+			end
+		end
+	end
+	return nil, nil
+end
+
+local function sweepHit(ball, from, to, speed)
 	local delta = to - from
 	if delta.Magnitude < 0.01 then return end
+	if not BallService.IsLive(ball) then return end
 
 	local result = workspace:Spherecast(from, CFG.Ball.Size * 0.5, delta, sweepParams)
 	if not result then return end
@@ -323,7 +334,7 @@ local function sweepHit(ball: BasePart, from: Vector3, to: Vector3, speed: numbe
 		ball:SetAttribute("Clean", false)
 		return
 	end
-	if not isActorAlive(character) then return end
+	if not alive(character) then return end
 
 	local record = lastThrow[ball]
 	if record and record.actor == character and os.clock() - record.at < 0.25 then return end
@@ -332,21 +343,22 @@ local function sweepHit(ball: BasePart, from: Vector3, to: Vector3, speed: numbe
 	ball:SetAttribute("Clean", false)
 end
 
-local function tryPickup(ball: BasePart, speed: number)
+local function tryPickup(ball, speed)
 	if holder[ball] or speed > CFG.Ball.PickupMaxSpeed then return end
 	local record = lastThrow[ball]
 
 	for _, character in ipairs(CollectionService:GetTagged("DodgeballActor")) do
-		if character:IsA("Model") and isActorAlive(character) and not heldBy[character] then
-			if not (record and record.actor == character and os.clock() - record.at < 0.4) then
-				local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if character:IsA("Model") and alive(character) and not heldBy[character] then
+			local blocked = false
+			if record and record.actor == character and os.clock() - record.at < 0.4 then
+				blocked = true
+			end
+			if not blocked then
+				local root = character:FindFirstChild("HumanoidRootPart")
 				if root then
-					-- цилиндр вместо сферы: мяч на полу y=2.1, корень на бедре y=4,
-					-- сферическая дистанция не доставала до мяча на линии центра
 					local offset = ball.Position - root.Position
 					local flat = Vector3.new(offset.X, 0, offset.Z).Magnitude
-					if flat <= CFG.Throw.PickupRadius
-						and math.abs(offset.Y) <= CFG.Ball.PickupVerticalLimit then
+					if flat <= CFG.Throw.PickupRadius and math.abs(offset.Y) <= CFG.Ball.PickupVerticalLimit then
 						attach(character, ball)
 						return
 					end
@@ -377,7 +389,7 @@ function BallService.Start()
 				local from = previous[ball] or ball.Position
 				local to = ball.Position
 
-				if speed >= CFG.Ball.MinHitSpeed then
+				if BallService.IsLive(ball) then
 					slowSince[ball] = now
 					sweepHit(ball, from, to, speed)
 				else
@@ -395,6 +407,7 @@ function BallService.Start()
 					ball:SetAttribute("Clean", false)
 					previous[ball] = ball.Position
 					history[ball] = {}
+					lastThrow[ball] = nil
 				end
 			end
 		end

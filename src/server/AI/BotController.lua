@@ -1,15 +1,6 @@
--- BotController v0.10.0: спортивное поведение вместо толпы.
---
--- Было: все боты обеих команд брали глобально ближайший мяч и бежали к нему через всё поле.
--- Стало:
---   1. половина поля — жёсткое ограничение, бот не пересекает центр;
---   2. заявка на мяч эксклюзивна: один мяч — один бот, срок ClaimSeconds;
---   3. мяч заявляется только на своей половине или в нейтральной зоне у центра;
---   4. коридоры по x разводят ботов, чтобы они не выстраивались в ряд;
---   5. сепарация отталкивает от союзников;
---   6. без доступного мяча бот держит коридор, а не бежит в толпу;
---   7. бросок с баллистическим лофтом, чтобы мяч долетал;
---   8. иногда уклоняется от летящего мяча.
+-- BotController: half-court sports AI.
+-- Audit fix: bots never caught anything. They now read incoming live throws
+-- and open a catch stance through CatchService, same path as players.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -23,82 +14,72 @@ local Resolve = require(Shared:WaitForChild("Resolve"))
 
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 local RagdollService = Resolve.Require(ServerScriptService, "RagdollService")
+local CatchService = Resolve.Require(ServerScriptService, "CatchService")
 
 local BotController = {}
+local bots = {}
+local usedNames = {}
+local slotCount = { [1] = 0, [2] = 0 }
+local state = {}
+local claims = {}
 
-local bots: { Model } = {}
-local usedNames: { [string]: boolean } = {}
-local slotCount: { [number]: number } = { [1] = 0, [2] = 0 }
-local state: { [Model]: any } = {}
-local claims: { [BasePart]: any } = {}
-
-local SKIN_TONES = {
-	Color3.fromRGB(255, 204, 153),
-	Color3.fromRGB(234, 184, 146),
-	Color3.fromRGB(198, 134, 96),
-	Color3.fromRGB(140, 92, 62),
-	Color3.fromRGB(255, 219, 172),
+local SKIN = {
+	Color3.fromRGB(255, 208, 164), Color3.fromRGB(238, 190, 150),
+	Color3.fromRGB(202, 140, 100), Color3.fromRGB(146, 98, 66),
 }
 
-local function halfSign(team: number): number
-	return if team == 1 then -1 else 1
+local function halfSign(team)
+	if team == 1 then return -1 end
+	return 1
 end
 
-local function halfBounds(team: number)
+local function bounds(team)
 	local A = CFG.BotAI
 	local halfW = CFG.Arena.Width * 0.5 - A.EdgeMargin
 	local halfD = CFG.Arena.Depth * 0.5 - A.EdgeMargin
 	local sign = halfSign(team)
-	local zNear = sign * A.CenterMargin
-	local zFar = sign * halfD
-	return {
-		xMin = -halfW, xMax = halfW,
-		zMin = math.min(zNear, zFar), zMax = math.max(zNear, zFar),
-	}
+	local near = sign * A.CenterMargin
+	local far = sign * halfD
+	return { xMin = -halfW, xMax = halfW, zMin = math.min(near, far), zMax = math.max(near, far) }
 end
 
-local function clampToHalf(position: Vector3, team: number): Vector3
-	local b = halfBounds(team)
+local function clampToHalf(position, team)
+	local b = bounds(team)
 	return Vector3.new(
 		math.clamp(position.X, b.xMin, b.xMax),
 		position.Y,
-		math.clamp(position.Z, b.zMin, b.zMax)
-	)
+		math.clamp(position.Z, b.zMin, b.zMax))
 end
 
 local function freeBalls()
 	local list = {}
 	for _, ball in ipairs(CollectionService:GetTagged("Dodgeball")) do
-		if ball:IsA("BasePart") and ball:IsDescendantOf(workspace)
-			and not ball:GetAttribute("HeldBy") then
+		if ball:IsA("BasePart") and ball:IsDescendantOf(workspace) and not ball:GetAttribute("HeldBy") then
 			table.insert(list, ball)
 		end
 	end
 	return list
 end
 
-local function purgeClaims(now: number)
+local function purgeClaims(now)
 	for ball, claim in pairs(claims) do
 		if not ball.Parent or not ball:IsDescendantOf(workspace)
-			or ball:GetAttribute("HeldBy")
-			or now > claim.expires
-			or not claim.bot.Parent then
+			or ball:GetAttribute("HeldBy") or now > claim.expires or not claim.bot.Parent then
 			claims[ball] = nil
 		end
 	end
 end
 
-local function ballEligible(ball: BasePart, team: number): boolean
-	local sign = halfSign(team)
+local function eligibleBall(ball, team)
 	local z = ball.Position.Z
-	if z * sign > 0 then return true end
+	if z * halfSign(team) > 0 then return true end
 	return math.abs(z) <= CFG.BotAI.CenterReach
 end
 
-local function claimBall(bot: Model, team: number, root: BasePart, now: number)
+local function claimBall(bot, team, root, now)
 	local best, bestDist = nil, math.huge
 	for _, ball in ipairs(freeBalls()) do
-		if ballEligible(ball, team) and not claims[ball] then
+		if eligibleBall(ball, team) and not claims[ball] then
 			local d = (ball.Position - root.Position).Magnitude
 			if d < bestDist then best, bestDist = ball, d end
 		end
@@ -110,19 +91,19 @@ local function claimBall(bot: Model, team: number, root: BasePart, now: number)
 	return nil
 end
 
-local function ownClaim(bot: Model): BasePart?
+local function ownClaim(bot)
 	for ball, claim in pairs(claims) do
 		if claim.bot == bot then return ball end
 	end
 	return nil
 end
 
-local function separationOffset(bot: Model, root: BasePart): Vector3
+local function separation(bot, root)
 	local push = Vector3.zero
 	local team = bot:GetAttribute("Team")
 	for _, other in ipairs(bots) do
 		if other ~= bot and other.Parent and other:GetAttribute("Team") == team then
-			local otherRoot = other:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local otherRoot = other:FindFirstChild("HumanoidRootPart")
 			if otherRoot then
 				local offset = root.Position - otherRoot.Position
 				local flat = Vector3.new(offset.X, 0, offset.Z)
@@ -136,61 +117,37 @@ local function separationOffset(bot: Model, root: BasePart): Vector3
 	return push
 end
 
-local function incomingThreat(root: BasePart): BasePart?
-	for _, ball in ipairs(freeBalls()) do
-		local velocity = ball.AssemblyLinearVelocity
-		if velocity.Magnitude > 45 then
-			local toBot = root.Position - ball.Position
-			local d = toBot.Magnitude
-			if d > 1 and d < CFG.BotAI.EvadeDistance then
-				if velocity.Unit:Dot(toBot.Unit) > 0.86 then
-					return ball
-				end
-			end
-		end
-	end
-	return nil
-end
-
-local function hasLineOfSight(from: Vector3, to: Vector3, exclude: { Instance }, target: Model): boolean
+local function lineOfSight(from, to, exclude, target)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = exclude
 	params.IgnoreWater = true
-	local delta = to - from
-	local hit = workspace:Raycast(from, delta, params)
-	-- луч заканчивается внутри цели, поэтому попадание по самой цели это успех.
-	-- Раньше return hit == nil всегда давал false, и боты никогда не бросали.
+	local hit = workspace:Raycast(from, to - from, params)
 	if hit == nil then return true end
 	return hit.Instance:IsDescendantOf(target)
 end
 
--- Низкая дуга: theta = 0.5 * asin(g * R / v^2)
-local function ballisticDirection(origin: Vector3, target: Vector3, speed: number): Vector3
+local function ballistic(origin, target, speed)
 	local offset = target - origin
 	local flat = Vector3.new(offset.X, 0, offset.Z)
 	local distance = flat.Magnitude
-	if distance < 0.5 then return Vector3.new(0, 0, halfSign(1)) end
-
+	if distance < 0.5 then return Vector3.new(0, 0, -1) end
 	local g = workspace.Gravity * math.clamp(CFG.Ball.GravityScale, 0.05, 1)
 	local ratio = math.clamp(g * distance / (speed * speed), 0, 1)
-	local angle = 0.5 * math.asin(ratio)
-	angle = math.clamp(angle + math.rad(2), math.rad(2), math.rad(40))
-
-	local dir = flat.Unit * math.cos(angle) + Vector3.new(0, math.sin(angle), 0)
-	return dir.Unit
+	local angle = math.clamp(0.5 * math.asin(ratio) + math.rad(2), math.rad(2), math.rad(40))
+	return (flat.Unit * math.cos(angle) + Vector3.new(0, math.sin(angle), 0)).Unit
 end
 
-local function nearestEnemy(character: Model): Model?
+local function nearestEnemy(character)
 	local team = character:GetAttribute("Team")
-	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then return nil end
 	local best, bestDist = nil, math.huge
 	for _, model in ipairs(CollectionService:GetTagged("DodgeballActor")) do
 		if model:IsA("Model") and model ~= character and model:GetAttribute("Team") ~= team then
 			if not model:GetAttribute("Benched") and not model:GetAttribute("Ragdolled") then
 				local humanoid = model:FindFirstChildOfClass("Humanoid")
-				local enemyRoot = model:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local enemyRoot = model:FindFirstChild("HumanoidRootPart")
 				if humanoid and humanoid.Health > 0 and enemyRoot then
 					local d = (enemyRoot.Position - root.Position).Magnitude
 					if d < bestDist then best, bestDist = model, d end
@@ -201,7 +158,7 @@ local function nearestEnemy(character: Model): Model?
 	return best
 end
 
-local function pickName(): string
+local function pickName()
 	local pool = CFG.Readability.BotNames
 	for _ = 1, #pool do
 		local candidate = pool[math.random(1, #pool)]
@@ -215,11 +172,10 @@ local function pickName(): string
 	return fallback
 end
 
-local function buildDescription(team: number): HumanoidDescription
+local function createRig(team)
 	local entry = CFG.Teams[team] or CFG.Teams[1]
-	local skin = SKIN_TONES[math.random(1, #SKIN_TONES)]
+	local skin = SKIN[math.random(1, #SKIN)]
 	local jitter = CFG.Readability.BotScaleJitter
-
 	local description = Instance.new("HumanoidDescription")
 	description.HeadColor = skin
 	description.LeftArmColor = skin
@@ -227,18 +183,12 @@ local function buildDescription(team: number): HumanoidDescription
 	description.TorsoColor = entry.color
 	description.LeftLegColor = entry.dark
 	description.RightLegColor = entry.dark
-
 	local function scale() return 1 + (math.random() * 2 - 1) * jitter end
 	description.HeightScale = scale()
 	description.WidthScale = scale()
-	description.DepthScale = scale()
-	description.HeadScale = scale()
-	return description
-end
 
-local function createRig(team: number): Model?
 	local ok, model = pcall(function()
-		return Players:CreateHumanoidModelFromDescription(buildDescription(team), Enum.HumanoidRigType.R6)
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
 	end)
 	if ok and model then return model end
 	local template = ServerStorage:FindFirstChild("BotRig")
@@ -246,10 +196,10 @@ local function createRig(team: number): Model?
 	return nil
 end
 
-local function think(bot: Model)
+local function think(bot)
 	local info = state[bot]
 	local humanoid = bot:FindFirstChildOfClass("Humanoid")
-	local root = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local root = bot:FindFirstChild("HumanoidRootPart")
 	if not info or not humanoid or not root then return end
 
 	local team = info.team
@@ -260,6 +210,7 @@ local function think(bot: Model)
 	local lastThrowAt = 0
 	local wander = Vector3.zero
 	local nextWander = 0
+	local nextCatchTry = 0
 
 	while bot.Parent and humanoid.Health > 0 do
 		task.wait(CFG.BotAI.TickSeconds)
@@ -271,42 +222,40 @@ local function think(bot: Model)
 		local now = os.clock()
 		purgeClaims(now)
 
-		-- 1. уклонение от летящего мяча
-		local threat = incomingThreat(root)
-		if threat and math.random() < CFG.BotAI.EvadeChance then
-			local velocity = threat.AssemblyLinearVelocity.Unit
-			local side = Vector3.new(-velocity.Z, 0, velocity.X)
-			if math.random() < 0.5 then side = -side end
-			humanoid:MoveTo(clampToHalf(root.Position + side * CFG.BotAI.EvadeStrafe, team))
+		-- Catch first: a live throw heading at this bot is the highest priority.
+		local threat, threatDist = BallService.IncomingThreat(root, CFG.BotAI.CatchRange)
+		if threat and now > nextCatchTry and not bot:GetAttribute("Carrying") then
+			nextCatchTry = now + CFG.BotAI.CatchReaction
+			if math.random() < CFG.BotAI.CatchChance then
+				local flight = threatDist / math.max(threat.AssemblyLinearVelocity.Magnitude, 1)
+				CatchService.OpenStance(bot, math.clamp(flight + 0.35, 0.3, 1.4))
+			else
+				local velocity = threat.AssemblyLinearVelocity.Unit
+				local side = Vector3.new(-velocity.Z, 0, velocity.X)
+				if math.random() < 0.5 then side = -side end
+				humanoid:MoveTo(clampToHalf(root.Position + side * CFG.BotAI.EvadeStrafe, team))
+			end
 			continue
 		end
 
 		local held = BallService.GetHeld(bot)
 		if held then
-			-- 2. с мячом: выходим на линию броска в своём коридоре
-			local goal = throwLine + separationOffset(bot, root)
-			humanoid:MoveTo(clampToHalf(goal, team))
-
+			humanoid:MoveTo(clampToHalf(throwLine + separation(bot, root), team))
 			if now - lastThrowAt >= CFG.BotAI.ThrowInterval then
 				local enemy = nearestEnemy(bot)
-				local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
 				if enemyRoot then
 					local origin = root.Position + Vector3.new(0, CFG.Throw.SpawnLift, 0)
 					local target = enemyRoot.Position + Vector3.new(0, 1, 0)
 					local ballsFolder = workspace:FindFirstChild("Balls")
 					local exclude = { bot }
 					if ballsFolder then table.insert(exclude, ballsFolder) end
-
-					if hasLineOfSight(origin, target, exclude, enemy) then
+					if lineOfSight(origin, target, exclude, enemy) then
 						local charge = 0.55 + math.random() * 0.35
 						local t = math.clamp((charge - CFG.Throw.ChargeMin) / (CFG.Throw.ChargeMax - CFG.Throw.ChargeMin), 0, 1)
 						local speed = CFG.Throw.SpeedMin + (CFG.Throw.SpeedMax - CFG.Throw.SpeedMin) * t
-
-						local dir = ballisticDirection(origin, target, speed)
-						local jitter = Vector3.new(
-							math.random() - 0.5, (math.random() - 0.5) * 0.4, math.random() - 0.5
-						) * math.rad(aimError)
-
+						local dir = ballistic(origin, target, speed)
+						local jitter = Vector3.new(math.random() - 0.5, (math.random() - 0.5) * 0.4, math.random() - 0.5) * math.rad(aimError)
 						if BallService.Throw(bot, held, (dir + jitter).Unit, charge) then
 							lastThrowAt = now
 						end
@@ -314,32 +263,28 @@ local function think(bot: Model)
 				end
 			end
 		else
-			-- 3. без мяча: своя заявка, иначе держим коридор
 			local target = ownClaim(bot)
 			if not target or not target.Parent or target:GetAttribute("HeldBy") then
 				target = claimBall(bot, team, root, now)
 			end
-
 			if target then
-				local goal = target.Position + separationOffset(bot, root)
-				humanoid:MoveTo(clampToHalf(goal, team))
+				humanoid:MoveTo(clampToHalf(target.Position + separation(bot, root), team))
 			else
 				if now > nextWander then
 					nextWander = now + 1.5 + math.random()
 					local r = CFG.BotAI.WanderRadius
 					wander = Vector3.new((math.random() * 2 - 1) * r, 0, (math.random() * 2 - 1) * r * 0.5)
 				end
-				local goal = anchor + wander + separationOffset(bot, root)
-				humanoid:MoveTo(clampToHalf(goal, team))
+				humanoid:MoveTo(clampToHalf(anchor + wander + separation(bot, root), team))
 			end
 		end
 	end
 end
 
-function BotController.Spawn(team: number, position: Vector3): Model?
+function BotController.Spawn(team, position)
 	local bot = createRig(team)
 	if not bot then
-		warn("[BotController] Could not create a rig. Put a BotRig into ServerStorage as a fallback.")
+		warn("[BotController] rig creation failed, add BotRig to ServerStorage")
 		return nil
 	end
 
@@ -347,17 +292,15 @@ function BotController.Spawn(team: number, position: Vector3): Model?
 	local slot = slotCount[team]
 	local laneX = (slot - 2) * CFG.BotAI.LaneSpacing
 
-	local displayName = pickName()
-	bot.Name = "Bot_" .. displayName
+	local name = pickName()
+	bot.Name = "Bot_" .. name
 	bot:SetAttribute("Team", team)
-	bot:SetAttribute("DisplayName", displayName)
+	bot:SetAttribute("DisplayName", name)
 	bot:SetAttribute("IsBot", true)
 	bot:SetAttribute("Benched", false)
 	bot:SetAttribute("Ragdolled", false)
 	bot.Parent = workspace
-
-	local start = clampToHalf(Vector3.new(laneX, position.Y, position.Z), team)
-	bot:PivotTo(CFrame.new(start + Vector3.new(0, 3, 0)))
+	bot:PivotTo(CFrame.new(clampToHalf(Vector3.new(laneX, position.Y, position.Z), team) + Vector3.new(0, 3, 0)))
 
 	local humanoid = bot:FindFirstChildOfClass("Humanoid")
 	if humanoid then
@@ -367,7 +310,6 @@ function BotController.Spawn(team: number, position: Vector3): Model?
 	end
 
 	state[bot] = { team = team, slot = slot, laneX = laneX }
-
 	RagdollService.Prepare(bot)
 	table.insert(bots, bot)
 	task.spawn(think, bot)

@@ -1,7 +1,10 @@
--- Bootstrap v0.10.0: ловля разрешается на контакте через стойку.
--- CatchRequest принимает направление камеры, попадание сначала пробует превратиться в ловлю.
+-- Bootstrap: wiring and rule enforcement.
+-- Audit fixes: players are held to their own half, dodge is a sustained
+-- impulse instead of a single frame, catch interception runs for bots too,
+-- and ability readiness is published as attributes for the HUD.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -16,7 +19,6 @@ local Collision = require(Shared:WaitForChild("Collision", 20))
 local AimAssist = require(Shared:WaitForChild("AimAssist", 20))
 
 Collision.Setup()
-Resolve.Report(ServerScriptService, "Bootstrap")
 
 local AntiCheat = Resolve.Require(ServerScriptService, "AntiCheat")
 local ArenaService = Resolve.Require(ServerScriptService, "ArenaService")
@@ -50,27 +52,26 @@ end
 
 BallService.SpawnAll()
 
-local throwCooldown: { [number]: number } = {}
-local dodgeCooldown: { [number]: number } = {}
+local throwCooldown = {}
+local dodgeCooldown = {}
 
-local function onCharacter(character: Model)
-	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+local function onCharacter(character)
+	local humanoid = character:WaitForChild("Humanoid")
 	humanoid.WalkSpeed = CFG.Movement.WalkSpeed
 	humanoid.JumpPower = CFG.Movement.JumpPower
 	character:SetAttribute("Benched", false)
 	character:SetAttribute("Ragdolled", false)
 	character:SetAttribute("Carrying", false)
 	character:SetAttribute("IsBot", false)
-
 	local owner = Players:GetPlayerFromCharacter(character)
 	if owner then character:SetAttribute("DisplayName", owner.DisplayName) end
-
 	RagdollService.Prepare(character)
 	TeamIdentityService.Refresh(character)
 end
 
-local function onPlayer(player: Player)
+local function onPlayer(player)
 	player:SetAttribute("MatchesThisSession", 0)
+	player:SetAttribute("DodgeReadyAt", 0)
 	ProgressionService.OnPlayer(player)
 	FtueService.OnPlayer(player)
 	player.CharacterAdded:Connect(onCharacter)
@@ -81,16 +82,17 @@ end
 Players.PlayerAdded:Connect(onPlayer)
 for _, player in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, player) end
 
-AntiCheat.Flagged.Event:Connect(function(player: Player, reason: string, total: number)
+AntiCheat.Flagged.Event:Connect(function(player, reason, total)
 	AnalyticsService.Event(player, "security_flag", { reason = reason, total = total })
 	warn(string.format("[Security] %s: %s (total %d)", player.Name, reason, total))
 end)
 
-BallService.PickedUp.Event:Connect(function(player: Player)
+BallService.PickedUp.Event:Connect(function(player)
 	FtueService.PickedUp(player)
 end)
 
-CatchService.Caught.Event:Connect(function(player: Player, revived: boolean)
+CatchService.Caught.Event:Connect(function(player, revived)
+	if not player then return end
 	ProgressionService.RegisterStat(player, "catches", 1)
 	FtueService.Caught(player)
 	if revived then
@@ -99,13 +101,13 @@ CatchService.Caught.Event:Connect(function(player: Player, revived: boolean)
 	end
 end)
 
-local function enemyTargets(character: Model)
+local function enemyTargets(character)
 	local team = character:GetAttribute("Team")
 	local list = {}
 	for _, other in ipairs(CollectionService:GetTagged("DodgeballActor")) do
 		if other:IsA("Model") and other ~= character and other:GetAttribute("Team") ~= team then
 			if not other:GetAttribute("Benched") and not other:GetAttribute("Ragdolled") then
-				local root = other:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local root = other:FindFirstChild("HumanoidRootPart")
 				local humanoid = other:FindFirstChildOfClass("Humanoid")
 				if root and humanoid and humanoid.Health > 0 then
 					table.insert(list, { root = root, character = other })
@@ -116,7 +118,7 @@ local function enemyTargets(character: Model)
 	return list
 end
 
-Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, clientOrigin: any)
+Net.On("ThrowRequest", function(player, charge, aimDir, clientOrigin)
 	if not AntiCheat.Allow(player, "Throw") then return end
 	if not AntiCheat.ValidCharge(charge) or not AntiCheat.ValidDirection(aimDir) then return end
 
@@ -125,13 +127,12 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, client
 
 	local character = player.Character
 	if not character or character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
-	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local root = character:FindFirstChild("HumanoidRootPart")
 	local ball = BallService.GetHeld(character)
 	if not ball or not root then return end
 
 	local origin = root.Position
-	if typeof(clientOrigin) == "Vector3"
-		and (clientOrigin - root.Position).Magnitude <= CFG.Throw.OriginLeeway then
+	if typeof(clientOrigin) == "Vector3" and (clientOrigin - root.Position).Magnitude <= CFG.Throw.OriginLeeway then
 		origin = clientOrigin
 	end
 	origin += Vector3.new(0, CFG.Throw.SpawnLift, 0)
@@ -140,11 +141,11 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, client
 	local ballsFolder = workspace:FindFirstChild("Balls")
 	local exclude = { character }
 	if ballsFolder then table.insert(exclude, ballsFolder) end
-
 	local finalDir = AimAssist.Adjust(origin, aimDir, enemyTargets(character), isMobile, exclude)
 
 	local cannonMul, uncatchable = AbilityService.ConsumeCannon(player)
-	local suddenMul = if RoundService.IsSuddenDeath() then CFG.Round.SuddenDeathSpeedMul else 1
+	local suddenMul = 1
+	if RoundService.IsSuddenDeath() then suddenMul = CFG.Round.SuddenDeathSpeedMul end
 
 	if BallService.Throw(character, ball, finalDir, charge, cannonMul * suddenMul, origin) then
 		throwCooldown[player.UserId] = now + CFG.Throw.Cooldown
@@ -155,41 +156,58 @@ Net.On("ThrowRequest", function(player: Player, charge: any, aimDir: any, client
 	end
 end)
 
-Net.On("CatchRequest", function(player: Player, aimDir: any)
+Net.On("CatchRequest", function(player, aimDir)
 	if not AntiCheat.Allow(player, "Catch") then return end
 	CatchService.Try(player, aimDir)
 end)
 
-Net.On("DodgeRequest", function(player: Player, direction: any)
+-- Dodge is applied across several frames so ground friction cannot eat it.
+Net.On("DodgeRequest", function(player, direction)
 	if not AntiCheat.Allow(player, "Dodge") then return end
 	local now = os.clock()
 	if (dodgeCooldown[player.UserId] or 0) > now then return end
 	if not AntiCheat.ValidDirection(direction) then return end
 
 	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not root or character:GetAttribute("Benched") then return end
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
 
 	dodgeCooldown[player.UserId] = now + CFG.Movement.DodgeCooldown
+	player:SetAttribute("DodgeReadyAt", dodgeCooldown[player.UserId])
 	player:SetAttribute("InvulnUntil", now + CFG.Movement.DodgeIFrames)
+
 	local dir = direction.Unit
-	root.AssemblyLinearVelocity = Vector3.new(dir.X * CFG.Movement.DodgeSpeed, 6, dir.Z * CFG.Movement.DodgeSpeed)
+	local velocity = Vector3.new(dir.X * CFG.Movement.DodgeSpeed, CFG.Movement.DodgeLift, dir.Z * CFG.Movement.DodgeSpeed)
+	local finish = now + CFG.Movement.DodgeDuration
+
+	task.spawn(function()
+		while os.clock() < finish do
+			if not root.Parent or character:GetAttribute("Ragdolled") then return end
+			root.AssemblyLinearVelocity = velocity
+			RunService.Heartbeat:Wait()
+		end
+	end)
+
 	Net.FireAll("FXEvent", "dodge", character)
 end)
 
-Net.On("UltRequest", function(player: Player, ultId: any)
+Net.On("UltRequest", function(player, ultId)
 	if not AntiCheat.Allow(player, "Ult") then return end
-	AbilityService.Use(player, ultId)
+	local used = AbilityService.Use(player, ultId)
+	if not used then
+		local hype = AbilityService.GetHype(player)
+		Net.FireClient("HypeState", player, hype, CFG.Hype.Max)
+	end
 end)
 
-Net.On("QuestClaim", function(player: Player, index: any)
+Net.On("QuestClaim", function(player, index)
 	if not AntiCheat.Allow(player, "QuestClaim") then return end
 	if ProgressionService.ClaimQuest(player, index) then
 		AnalyticsService.Event(player, "quest_claim", { index = index })
 	end
 end)
 
-Net.On("UiEvent", function(player: Player, marker: any, device: any)
+Net.On("UiEvent", function(player, marker, device)
 	if not AntiCheat.Allow(player, "UiEvent") then return end
 	if typeof(marker) == "string" then AnalyticsService.UiMarker(player, marker) end
 	if typeof(device) == "string" then
@@ -198,18 +216,18 @@ Net.On("UiEvent", function(player: Player, marker: any, device: any)
 	end
 end)
 
-Net.On("QueueJoin", function(player: Player)
+Net.On("QueueJoin", function(player)
 	if not AntiCheat.Allow(player, "QueueJoin") then return end
 	MatchService.Enqueue(player)
 end)
 
-Net.On("RematchRequest", function(player: Player)
+Net.On("RematchRequest", function(player)
 	if not AntiCheat.Allow(player, "QueueJoin") then return end
 	AnalyticsService.Event(player, "rematch_pressed", {})
 	MatchService.Enqueue(player)
 end)
 
-Net.On("PingRequest", function(player: Player, position: any)
+Net.On("PingRequest", function(player, position)
 	if not AntiCheat.Allow(player, "PingRequest") then return end
 	local character = player.Character
 	if not character or not character:GetAttribute("Benched") then return end
@@ -217,25 +235,24 @@ Net.On("PingRequest", function(player: Player, position: any)
 	Net.FireAll("FXEvent", "ping", position, player.UserId)
 end)
 
-BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model, speed: number)
+BallService.HitDetected.Event:Connect(function(ball, character, speed)
 	if character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
 
 	local thrower = BallService.LastThrower(ball)
 	if not thrower or thrower == character then return end
 
-	-- без команды нельзя ни бить, ни быть битым
 	local throwerTeam = thrower:GetAttribute("Team")
 	local victimTeam = character:GetAttribute("Team")
 	if typeof(throwerTeam) ~= "number" or typeof(victimTeam) ~= "number" then return end
 	if throwerTeam == victimTeam then return end
 
-	local victimPlayer = Players:GetPlayerFromCharacter(character)
+	-- Catch resolves before damage, for players and bots alike.
+	if CatchService.Intercept(character, ball) then return end
 
-	-- стойка ловли перехватывает попадание до урона
-	if CatchService.InterceptHit(victimPlayer, ball, character) then return end
+	local victimPlayer = Players:GetPlayerFromCharacter(character)
 	if AbilityService.IsInvulnerable(victimPlayer) then return end
 
-	if AbilityService.ConsumeShield(character:GetAttribute("Team")) then
+	if AbilityService.ConsumeShield(victimTeam) then
 		ball.AssemblyLinearVelocity = -ball.AssemblyLinearVelocity * 0.4
 		Net.FireAll("FXEvent", "shield", character)
 		return
@@ -252,9 +269,52 @@ BallService.HitDetected.Event:Connect(function(ball: BasePart, character: Model,
 	end
 end)
 
+-- Half-court rule for human players. Bots clamp themselves.
+local halfAccumulator = 0
+RunService.Heartbeat:Connect(function(dt)
+	if not CFG.Rules.EnforceHalfCourt then return end
+	halfAccumulator += dt
+	local interval = 1 / math.max(CFG.Rules.HalfClampHz, 1)
+	if halfAccumulator < interval then return end
+	halfAccumulator = 0
+
+	if not MatchService.IsRunning() then return end
+	local state = RoundService.State
+	if state ~= "Live" and state ~= "SuddenDeath" then return end
+
+	local halfD = CFG.Arena.Depth * 0.5
+	local halfW = CFG.Arena.Width * 0.5
+	local band = CFG.Rules.NeutralBand
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		if character and not character:GetAttribute("Benched") and not character:GetAttribute("Ragdolled") then
+			local team = character:GetAttribute("Team")
+			local root = character:FindFirstChild("HumanoidRootPart")
+			if typeof(team) == "number" and root then
+				local sign = -1
+				if team == 2 then sign = 1 end
+				local pos = root.Position
+				local limit = sign * band
+				local beyond = false
+				if sign == -1 and pos.Z > limit then beyond = true end
+				if sign == 1 and pos.Z < limit then beyond = true end
+				if beyond then
+					local clamped = Vector3.new(
+						math.clamp(pos.X, -halfW + 3, halfW - 3),
+						pos.Y,
+						limit - sign * 0.5)
+					character:PivotTo(CFrame.new(clamped) * CFrame.Angles(0, select(2, root.CFrame:ToEulerAnglesYXZ()), 0))
+					root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+				end
+			end
+		end
+	end
+end)
+
 Players.PlayerRemoving:Connect(function(player)
 	throwCooldown[player.UserId] = nil
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] v0.10.0 server up: half-court bots, ball claims, catch stance")
+print("[RagdollDodgeball] audit build: half-court rule, live-throw hits, bot catching, sustained dodge")
