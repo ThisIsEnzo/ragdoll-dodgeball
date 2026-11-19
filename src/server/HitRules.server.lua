@@ -1,13 +1,17 @@
--- HitRules: один мяч не выкашивает всю команду.
--- После выбивания мяч теряет большую часть скорости и уходит вниз, поэтому
--- цепочка возможна только вплотную и читается как приём, а не как баг.
--- Отдельный Script: подключается к HitDetected и не правит существующие файлы.
+-- HitRules: impact rules applied after the hit pipeline resolves.
+-- Caps a single ball at two knockouts, kills most of its speed on contact,
+-- and adds the Heavy throw bonus. Deferred by one step so the catch and
+-- damage decision in Bootstrap always runs first.
 
+local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CFG = require(Shared:WaitForChild("BalanceConfig"))
+local Loadout = require(Shared:WaitForChild("Loadout"))
 local Resolve = require(Shared:WaitForChild("Resolve"))
+
 local BallService = Resolve.Require(ServerScriptService, "BallService")
 
 local MAX_KOS = 2
@@ -18,41 +22,58 @@ local WINDOW = 3
 local hits = setmetatable({}, { __mode = "k" })
 
 BallService.HitDetected.Event:Connect(function(ball, character, speed)
-	local player = game:GetService("Players"):GetPlayerFromCharacter(character)
-	local attempt = player and player:GetAttribute("CatchAttemptAt")
-	local stanceAge = if typeof(attempt) == "number" then os.clock() - attempt else -1
-	print(string.format("[HitRules] hit %s spd=%d stanceAge=%.2f clean=%s",
-		character.Name, math.floor(speed), stanceAge, tostring(ball:GetAttribute("Clean"))))
+	local player = Players:GetPlayerFromCharacter(character)
+	local attempt = nil
+	if player then attempt = player:GetAttribute("CatchAttemptAt") end
+	local stanceAge = -1
+	if typeof(attempt) == "number" then stanceAge = os.clock() - attempt end
+
+	local heavy = ball:GetAttribute("HeavyBall") == true
+	print(string.format("[HitRules] hit %s spd=%d stanceAge=%.2f heavy=%s",
+		character.Name, math.floor(speed), stanceAge, tostring(heavy)))
 
 	task.defer(function()
-	if not ball.Parent then return end
-	if ball:GetAttribute("HeldBy") then
-		print("[HitRules] CATCH on " .. character.Name)
-		return
-	end
+		if not ball.Parent then return end
 
-	local record = hits[ball]
-	if not record or os.clock() - record.at > WINDOW then
-		record = { count = 0, at = os.clock() }
-		hits[ball] = record
-	end
-	record.count += 1
-	record.at = os.clock()
+		if ball:GetAttribute("HeldBy") then
+			print("[HitRules] CATCH on " .. character.Name)
+			return
+		end
 
-	ball:SetAttribute("Clean", false)
+		if heavy then
+			local root = character:FindFirstChild("HumanoidRootPart")
+			if root then
+				local flat = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+				local push = Vector3.zero
+				if flat.Magnitude > 0.5 then
+					push = flat.Unit * Loadout.Heavy.ExtraImpulse
+				end
+				root.AssemblyLinearVelocity = root.AssemblyLinearVelocity + push
+			end
+		end
 
-	if record.count >= MAX_KOS then
-		ball.AssemblyLinearVelocity = Vector3.new(0, -PUSH_DOWN, 0)
-		print(string.format("[HitRules] ball spent after %d KOs", record.count))
-		return
-	end
+		local record = hits[ball]
+		if not record or os.clock() - record.at > WINDOW then
+			record = { count = 0, at = os.clock() }
+			hits[ball] = record
+		end
+		record.count += 1
+		record.at = os.clock()
 
-	local velocity = ball.AssemblyLinearVelocity
-	local flat = Vector3.new(velocity.X, 0, velocity.Z) * KEEP_SPEED
-	ball.AssemblyLinearVelocity = Vector3.new(flat.X, -PUSH_DOWN, flat.Z)
-	print(string.format("[HitRules] KO %d, speed %d -> %d",
-		record.count, math.floor(speed), math.floor(flat.Magnitude)))
+		ball:SetAttribute("Clean", false)
+
+		if record.count >= MAX_KOS then
+			ball.AssemblyLinearVelocity = Vector3.new(0, -PUSH_DOWN, 0)
+			print(string.format("[HitRules] ball spent after %d KOs", record.count))
+			return
+		end
+
+		local velocity = ball.AssemblyLinearVelocity
+		local flat = Vector3.new(velocity.X, 0, velocity.Z) * KEEP_SPEED
+		ball.AssemblyLinearVelocity = Vector3.new(flat.X, -PUSH_DOWN, flat.Z)
+		print(string.format("[HitRules] KO %d, speed %d -> %d",
+			record.count, math.floor(speed), math.floor(flat.Magnitude)))
 	end)
 end)
 
-print("[HitRules] multi-KO capped at " .. MAX_KOS)
+print("[HitRules] multi-KO capped at " .. MAX_KOS .. ", heavy bonus active")
