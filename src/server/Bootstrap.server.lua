@@ -1,7 +1,6 @@
--- Bootstrap: wiring and rule enforcement.
--- Audit fixes: players are held to their own half, dodge is a sustained
--- impulse instead of a single frame, catch interception runs for bots too,
--- and ability readiness is published as attributes for the HUD.
+-- Bootstrap: wiring and rules.
+-- The velocity-based half-court clamp is gone. CourtBarrier owns that rule
+-- with real collision, so nothing shoves the player anymore.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -161,7 +160,6 @@ Net.On("CatchRequest", function(player, aimDir)
 	CatchService.Try(player, aimDir)
 end)
 
--- Dodge is applied across several frames so ground friction cannot eat it.
 Net.On("DodgeRequest", function(player, direction)
 	if not AntiCheat.Allow(player, "Dodge") then return end
 	local now = os.clock()
@@ -195,8 +193,7 @@ Net.On("UltRequest", function(player, ultId)
 	if not AntiCheat.Allow(player, "Ult") then return end
 	local used = AbilityService.Use(player, ultId)
 	if not used then
-		local hype = AbilityService.GetHype(player)
-		Net.FireClient("HypeState", player, hype, CFG.Hype.Max)
+		Net.FireClient("HypeState", player, AbilityService.GetHype(player), CFG.Hype.Max)
 	end
 end)
 
@@ -246,7 +243,6 @@ BallService.HitDetected.Event:Connect(function(ball, character, speed)
 	if typeof(throwerTeam) ~= "number" or typeof(victimTeam) ~= "number" then return end
 	if throwerTeam == victimTeam then return end
 
-	-- Catch resolves before damage, for players and bots alike.
 	if CatchService.Intercept(character, ball) then return end
 
 	local victimPlayer = Players:GetPlayerFromCharacter(character)
@@ -269,52 +265,9 @@ BallService.HitDetected.Event:Connect(function(ball, character, speed)
 	end
 end)
 
--- Half-court rule for human players. Bots clamp themselves.
-local halfAccumulator = 0
-RunService.Heartbeat:Connect(function(dt)
-	if not CFG.Rules.EnforceHalfCourt then return end
-	halfAccumulator += dt
-	local interval = 1 / math.max(CFG.Rules.HalfClampHz, 1)
-	if halfAccumulator < interval then return end
-	halfAccumulator = 0
-
-	if not MatchService.IsRunning() then return end
-	local state = RoundService.State
-	if state ~= "Live" and state ~= "SuddenDeath" then return end
-
-	local halfD = CFG.Arena.Depth * 0.5
-	local halfW = CFG.Arena.Width * 0.5
-	local band = CFG.Rules.NeutralBand
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		local character = player.Character
-		if character and not character:GetAttribute("Benched") and not character:GetAttribute("Ragdolled") then
-			local team = character:GetAttribute("Team")
-			local root = character:FindFirstChild("HumanoidRootPart")
-			if typeof(team) == "number" and root then
-				local sign = -1
-				if team == 2 then sign = 1 end
-				local pos = root.Position
-				local limit = sign * band
-				local beyond = false
-				if sign == -1 and pos.Z > limit then beyond = true end
-				if sign == 1 and pos.Z < limit then beyond = true end
-				if beyond then
-					local clamped = Vector3.new(
-						math.clamp(pos.X, -halfW + 3, halfW - 3),
-						pos.Y,
-						limit - sign * 0.5)
-					character:PivotTo(CFrame.new(clamped) * CFrame.Angles(0, select(2, root.CFrame:ToEulerAnglesYXZ()), 0))
-					root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
-				end
-			end
-		end
-	end
-end)
-
 Players.PlayerRemoving:Connect(function(player)
 	throwCooldown[player.UserId] = nil
 	dodgeCooldown[player.UserId] = nil
 end)
 
-print("[RagdollDodgeball] audit build: half-court rule, live-throw hits, bot catching, sustained dodge")
+print("[RagdollDodgeball] centre rule moved to physical barrier, no more shoving")

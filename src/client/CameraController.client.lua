@@ -1,8 +1,11 @@
--- CameraController: fades anything that blocks the view of your character.
--- Audit fix: standing near a wall put the camera behind opaque geometry and
--- the screen went blank. LocalTransparencyModifier is client-only, so fading
--- here does not change what other players see.
--- Also hosts the ability readiness strip so ULT and DODGE stop feeling dead.
+-- CameraController: nothing may sit between you and your character.
+--
+-- Two fixes over the previous attempt:
+-- 1. Decorative parts were built with CanQuery = false, so the occlusion
+--    query could not see them. CanQuery is restored locally on scene geometry.
+-- 2. A SurfaceGui does not fade with its host part. That is why a giant
+--    SCHOOL GYM banner still covered the screen after the board was faded.
+--    Every SurfaceGui and BillboardGui on an occluder is now disabled too.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -13,13 +16,55 @@ local CFG = require(Shared:WaitForChild("BalanceConfig"))
 local Net = require(Shared:WaitForChild("Net"))
 
 local player = Players.LocalPlayer
-local faded = {}
+
+local fadedParts = {}
+local disabledGuis = {}
+local sceneParts = {}
+
+local function sceneRoots()
+	local list = {}
+	local decor = workspace:FindFirstChild("WorldDecor")
+	if decor then table.insert(list, decor) end
+	local arena = workspace:FindFirstChild("Arena")
+	if arena then table.insert(list, arena) end
+	return list
+end
+
+local function register()
+	table.clear(sceneParts)
+	for _, root in ipairs(sceneRoots()) do
+		for _, item in ipairs(root:GetDescendants()) do
+			if item:IsA("BasePart") then
+				item.CanQuery = true
+				table.insert(sceneParts, item)
+			end
+		end
+	end
+end
+
+local function hidePart(part)
+	if not part.Parent then return end
+	part.LocalTransparencyModifier = 1
+	fadedParts[part] = true
+	for _, child in ipairs(part:GetChildren()) do
+		if child:IsA("SurfaceGui") or child:IsA("BillboardGui") then
+			if child.Enabled then
+				child.Enabled = false
+				disabledGuis[child] = true
+			end
+		end
+	end
+end
 
 local function restoreAll()
-	for part in pairs(faded) do
+	for part in pairs(fadedParts) do
 		if part.Parent then part.LocalTransparencyModifier = 0 end
 	end
-	table.clear(faded)
+	for gui in pairs(disabledGuis) do
+		if gui.Parent then gui.Enabled = true end
+	end
+	table.clear(fadedParts)
+	table.clear(disabledGuis)
 end
 
 RunService.RenderStepped:Connect(function()
@@ -27,33 +72,62 @@ RunService.RenderStepped:Connect(function()
 	local character = player.Character
 	if not camera or not character then restoreAll() return end
 
-	local subject = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
-	if not subject then restoreAll() return end
+	local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+	if not head then restoreAll() return end
+
+	local keep = {}
 
 	local ok, blockers = pcall(function()
-		return camera:GetPartsObscuringTarget({ subject.Position, camera.CFrame.Position }, { character })
+		return camera:GetPartsObscuringTarget({ head.Position }, { character })
 	end)
-	if not ok or typeof(blockers) ~= "table" then return end
-
-	local current = {}
-	for _, part in ipairs(blockers) do
-		if part:IsA("BasePart") and not part:IsDescendantOf(character) then
-			local tagged = part:FindFirstAncestor("WorldDecor") or part:FindFirstAncestor("Arena")
-			if tagged then
-				current[part] = true
-				part.LocalTransparencyModifier = 1
-				faded[part] = true
+	if ok and typeof(blockers) == "table" then
+		for _, part in ipairs(blockers) do
+			if part:IsA("BasePart") and not part:IsDescendantOf(character) then
+				keep[part] = true
+				hidePart(part)
 			end
 		end
 	end
 
-	for part in pairs(faded) do
-		if not current[part] then
+	-- Camera can end up inside a part, which produces no ray hit at all.
+	local camPos = camera.CFrame.Position
+	local toHead = head.Position - camPos
+	local dist = toHead.Magnitude
+	local dir = Vector3.new(0, 0, -1)
+	if dist > 0.1 then dir = toHead.Unit end
+
+	for _, part in ipairs(sceneParts) do
+		if part.Parent and not keep[part] then
+			local offset = part.Position - camPos
+			local along = offset:Dot(dir)
+			if along > -10 and along < dist + 4 then
+				local closest = camPos + dir * math.clamp(along, 0, dist)
+				local gap = (part.Position - closest).Magnitude
+				local radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) * 0.5
+				if gap < radius + 5 then
+					keep[part] = true
+					hidePart(part)
+				end
+			end
+		end
+	end
+
+	for part in pairs(fadedParts) do
+		if not keep[part] then
 			if part.Parent then part.LocalTransparencyModifier = 0 end
-			faded[part] = nil
+			fadedParts[part] = nil
+		end
+	end
+	for gui in pairs(disabledGuis) do
+		local host = gui.Parent
+		if not host or not keep[host] then
+			if gui.Parent then gui.Enabled = true end
+			disabledGuis[gui] = nil
 		end
 	end
 end)
+
+-- Ability readiness strip -------------------------------------------------
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "RDCamera"
@@ -63,32 +137,38 @@ gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
 gui.DisplayOrder = 7
 gui.Parent = player:WaitForChild("PlayerGui")
 
-local strip = Instance.new("Frame")
-strip.Size = UDim2.fromOffset(240, 46)
-strip.Position = UDim2.new(1, -16, 1, -190)
-strip.AnchorPoint = Vector2.new(1, 1)
-strip.BackgroundColor3 = Color3.fromRGB(12, 18, 36)
-strip.BackgroundTransparency = 0.2
-strip.BorderSizePixel = 0
-strip.Parent = gui
-Instance.new("UICorner", strip).CornerRadius = UDim.new(0, 10)
+local function make(class, props, parent)
+	local item = Instance.new(class)
+	for key, value in pairs(props) do item[key] = value end
+	item.Parent = parent
+	return item
+end
+
+local strip = make("Frame", {
+	Size = UDim2.fromOffset(240, 46),
+	Position = UDim2.new(1, -16, 1, -190),
+	AnchorPoint = Vector2.new(1, 1),
+	BackgroundColor3 = Color3.fromRGB(12, 18, 36),
+	BackgroundTransparency = 0.2,
+	BorderSizePixel = 0,
+}, gui)
+make("UICorner", { CornerRadius = UDim.new(0, 10) }, strip)
 
 local function cell(x, width, label)
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromOffset(width, 34)
-	frame.Position = UDim2.fromOffset(x, 6)
-	frame.BackgroundColor3 = Color3.fromRGB(28, 36, 62)
-	frame.BorderSizePixel = 0
-	frame.Parent = strip
-	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
-
-	local text = Instance.new("TextLabel")
-	text.Size = UDim2.fromScale(1, 1)
-	text.BackgroundTransparency = 1
-	text.Font = Enum.Font.FredokaOne
-	text.TextSize = 13
-	text.Text = label
-	text.Parent = frame
+	local frame = make("Frame", {
+		Size = UDim2.fromOffset(width, 34),
+		Position = UDim2.fromOffset(x, 6),
+		BackgroundColor3 = Color3.fromRGB(28, 36, 62),
+		BorderSizePixel = 0,
+	}, strip)
+	make("UICorner", { CornerRadius = UDim.new(0, 8) }, frame)
+	local text = make("TextLabel", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.FredokaOne,
+		TextSize = 13,
+		Text = label,
+	}, frame)
 	return frame, text
 end
 
@@ -96,8 +176,15 @@ local ultFrame, ultText = cell(6, 112, "ULT 0%")
 local dodgeFrame, dodgeText = cell(124, 110, "DODGE READY")
 
 local hypeValue, hypeMax = 0, CFG.Hype.Max
+local hype = Net.Get("HypeState")
+if hype then
+	hype.OnClientEvent:Connect(function(value, max)
+		hypeValue = value or 0
+		hypeMax = max or CFG.Hype.Max
+	end)
+end
 
-RunService.RenderStepped:Connect(function()
+RunService.Heartbeat:Connect(function()
 	local ratio = math.clamp(hypeValue / math.max(hypeMax, 1), 0, 1)
 	if ratio >= 1 then
 		ultText.Text = "ULT READY  Q"
@@ -111,9 +198,7 @@ RunService.RenderStepped:Connect(function()
 
 	local readyAt = player:GetAttribute("DodgeReadyAt")
 	local left = 0
-	if typeof(readyAt) == "number" then
-		left = math.max(0, readyAt - os.clock())
-	end
+	if typeof(readyAt) == "number" then left = math.max(0, readyAt - os.clock()) end
 	if left <= 0 then
 		dodgeText.Text = "DODGE  SHIFT"
 		dodgeFrame.BackgroundColor3 = Color3.fromRGB(46, 155, 255)
@@ -125,12 +210,19 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
-local hype = Net.Get("HypeState")
-if hype then
-	hype.OnClientEvent:Connect(function(value, max)
-		hypeValue = value or 0
-		hypeMax = max or CFG.Hype.Max
-	end)
-end
+task.spawn(function()
+	workspace:WaitForChild("WorldDecor", 40)
+	task.wait(0.4)
+	register()
+	local decor = workspace:FindFirstChild("WorldDecor")
+	if decor then
+		decor:GetAttributeChangedSignal("Theme"):Connect(function()
+			task.wait(0.6)
+			restoreAll()
+			register()
+		end)
+	end
+end)
 
-print("[Camera] occlusion fade + ability strip live")
+register()
+print("[Camera] occluders and their SurfaceGuis both hidden")
