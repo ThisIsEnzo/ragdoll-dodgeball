@@ -1,39 +1,33 @@
--- WorldService: plain default rendering.
+-- WorldService: sole authority for rendering, plain daylight.
 --
--- Rollback. Six lighting passes made the court worse each time, so this now
--- removes every custom effect, restores neutral daylight, turns all neon into
--- ordinary lit plastic and disables the spot fixtures. No bloom, no atmosphere,
--- no colour grading, no glow.
---
--- MapService still tries to apply its own theme lighting on a venue change,
--- so this re-asserts on theme change and on a slow timer.
+-- MapService destroys and recreates the whole WorldDecor folder on a venue
+-- change. Watchers bound to the old folder died with it, so new geometry was
+-- never neutralised and the rooftop theme left the court at ClockTime 20.4.
+-- This now watches Workspace.ChildAdded, re-applies on every rebuild, and
+-- re-asserts twice a second so no theme can hold the scene dark.
 
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 
 local WorldService = {}
 
-local EFFECTS = { "RDBloom", "RDGrade", "RDRays", "RDAir", "RDImpactCorrection" }
+local DROP_FOLDERS = { "Skyline", "Helipad", "CageBars" }
 
 local function stripEffects()
-	for _, name in ipairs(EFFECTS) do
-		local item = Lighting:FindFirstChild(name)
-		if item then item:Destroy() end
-	end
 	for _, item in ipairs(Lighting:GetChildren()) do
-		if item:IsA("PostEffect") then item:Destroy() end
+		if item:IsA("PostEffect") or item:IsA("Atmosphere") or item:IsA("Sky") then
+			item:Destroy()
+		end
 	end
-	local sky = Lighting:FindFirstChildOfClass("Sky")
-	if sky then sky:Destroy() end
 end
 
-local function neutralLighting()
-	Lighting.Brightness = 2
-	Lighting.Ambient = Color3.fromRGB(80, 80, 80)
-	Lighting.OutdoorAmbient = Color3.fromRGB(140, 140, 140)
+local function neutral()
+	Lighting.Brightness = 2.2
+	Lighting.Ambient = Color3.fromRGB(96, 96, 100)
+	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 155)
 	Lighting.ColorShift_Top = Color3.fromRGB(0, 0, 0)
 	Lighting.ColorShift_Bottom = Color3.fromRGB(0, 0, 0)
-	Lighting.EnvironmentDiffuseScale = 0.4
+	Lighting.EnvironmentDiffuseScale = 0.5
 	Lighting.EnvironmentSpecularScale = 0.4
 	Lighting.GlobalShadows = true
 	Lighting.ShadowSoftness = 0.2
@@ -44,9 +38,15 @@ local function neutralLighting()
 	Lighting.FogStart = 0
 end
 
-local function plainMaterials()
+local function plainScene()
 	local decor = Workspace:FindFirstChild("WorldDecor")
 	if not decor then return 0 end
+
+	for _, name in ipairs(DROP_FOLDERS) do
+		local folder = decor:FindFirstChild(name)
+		if folder then folder:Destroy() end
+	end
+
 	local changed = 0
 	for _, item in ipairs(decor:GetDescendants()) do
 		if item:IsA("BasePart") then
@@ -55,11 +55,15 @@ local function plainMaterials()
 				changed += 1
 			end
 			item.Reflectance = 0
-			item.LocalTransparencyModifier = 0
 		elseif item:IsA("SpotLight") or item:IsA("PointLight") or item:IsA("SurfaceLight") then
 			item.Enabled = false
-		elseif item:IsA("ParticleEmitter") then
-			item.Enabled = false
+		elseif item:IsA("SurfaceGui") then
+			item.LightInfluence = 1
+			local label = item:FindFirstChildWhichIsA("TextLabel", true)
+			if label then
+				label.TextScaled = false
+				label.TextSize = 42
+			end
 		end
 	end
 	return changed
@@ -67,36 +71,28 @@ end
 
 local function apply()
 	stripEffects()
-	neutralLighting()
-	local n = plainMaterials()
-	return n
+	neutral()
+	return plainScene()
 end
 
 function WorldService.Init()
 	local n = apply()
-	print("[World] plain default rendering, " .. n .. " neon parts converted")
+	print("[World] plain daylight, " .. n .. " neon parts flattened")
 end
 
 function WorldService.Start()
-	task.spawn(function()
-		local decor = Workspace:WaitForChild("WorldDecor", 40)
-		if decor then
-			decor:GetAttributeChangedSignal("Theme"):Connect(function()
-				task.wait(0.8)
-				apply()
-			end)
-			decor.DescendantAdded:Connect(function(item)
-				if item:IsA("BasePart") and item.Material == Enum.Material.Neon then
-					task.wait()
-					item.Material = Enum.Material.SmoothPlastic
-				elseif item:IsA("SpotLight") or item:IsA("PointLight") then
-					task.wait()
-					item.Enabled = false
-				end
-			end)
+	Workspace.ChildAdded:Connect(function(child)
+		if child.Name == "WorldDecor" then
+			task.wait(0.3)
+			apply()
+			task.wait(0.8)
+			apply()
 		end
+	end)
+
+	task.spawn(function()
 		while true do
-			task.wait(3)
+			task.wait(0.5)
 			apply()
 		end
 	end)

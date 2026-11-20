@@ -1,11 +1,9 @@
--- CameraController: nothing may sit between you and your character.
+-- CameraController: nothing sits between you and your character.
 --
--- Two fixes over the previous attempt:
--- 1. Decorative parts were built with CanQuery = false, so the occlusion
---    query could not see them. CanQuery is restored locally on scene geometry.
--- 2. A SurfaceGui does not fade with its host part. That is why a giant
---    SCHOOL GYM banner still covered the screen after the board was faded.
---    Every SurfaceGui and BillboardGui on an occluder is now disabled too.
+-- Rebuild-safe: MapService replaces the entire WorldDecor folder, so this
+-- watches Workspace.ChildAdded and re-registers instead of holding a dead
+-- reference. SurfaceGuis on occluders are disabled too, because a GUI does
+-- not fade with its host part.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -20,19 +18,17 @@ local player = Players.LocalPlayer
 local fadedParts = {}
 local disabledGuis = {}
 local sceneParts = {}
-
-local function sceneRoots()
-	local list = {}
-	local decor = workspace:FindFirstChild("WorldDecor")
-	if decor then table.insert(list, decor) end
-	local arena = workspace:FindFirstChild("Arena")
-	if arena then table.insert(list, arena) end
-	return list
-end
+local registeredRoot = nil
 
 local function register()
 	table.clear(sceneParts)
-	for _, root in ipairs(sceneRoots()) do
+	local roots = {}
+	local decor = workspace:FindFirstChild("WorldDecor")
+	if decor then table.insert(roots, decor) registeredRoot = decor end
+	local arena = workspace:FindFirstChild("Arena")
+	if arena then table.insert(roots, arena) end
+
+	for _, root in ipairs(roots) do
 		for _, item in ipairs(root:GetDescendants()) do
 			if item:IsA("BasePart") then
 				item.CanQuery = true
@@ -67,7 +63,26 @@ local function restoreAll()
 	table.clear(disabledGuis)
 end
 
-RunService.RenderStepped:Connect(function()
+workspace.ChildAdded:Connect(function(child)
+	if child.Name == "WorldDecor" then
+		task.wait(0.35)
+		restoreAll()
+		register()
+	end
+end)
+
+local staleCheck = 0
+RunService.RenderStepped:Connect(function(dt)
+	staleCheck += dt
+	if staleCheck > 1 then
+		staleCheck = 0
+		local decor = workspace:FindFirstChild("WorldDecor")
+		if decor ~= registeredRoot then
+			restoreAll()
+			register()
+		end
+	end
+
 	local camera = workspace.CurrentCamera
 	local character = player.Character
 	if not camera or not character then restoreAll() return end
@@ -89,7 +104,6 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 
-	-- Camera can end up inside a part, which produces no ray hit at all.
 	local camPos = camera.CFrame.Position
 	local toHead = head.Position - camPos
 	local dist = toHead.Magnitude
@@ -100,11 +114,11 @@ RunService.RenderStepped:Connect(function()
 		if part.Parent and not keep[part] then
 			local offset = part.Position - camPos
 			local along = offset:Dot(dir)
-			if along > -10 and along < dist + 4 then
+			if along > -12 and along < dist + 4 then
 				local closest = camPos + dir * math.clamp(along, 0, dist)
 				local gap = (part.Position - closest).Magnitude
 				local radius = math.max(part.Size.X, part.Size.Y, part.Size.Z) * 0.5
-				if gap < radius + 5 then
+				if gap < radius + 6 then
 					keep[part] = true
 					hidePart(part)
 				end
@@ -126,8 +140,6 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 end)
-
--- Ability readiness strip -------------------------------------------------
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "RDCamera"
@@ -214,15 +226,7 @@ task.spawn(function()
 	workspace:WaitForChild("WorldDecor", 40)
 	task.wait(0.4)
 	register()
-	local decor = workspace:FindFirstChild("WorldDecor")
-	if decor then
-		decor:GetAttributeChangedSignal("Theme"):Connect(function()
-			task.wait(0.6)
-			restoreAll()
-			register()
-		end)
-	end
 end)
 
 register()
-print("[Camera] occluders and their SurfaceGuis both hidden")
+print("[Camera] rebuild-safe occlusion, SurfaceGuis hidden with their host")

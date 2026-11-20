@@ -1,6 +1,9 @@
 -- BotController: half-court sports AI.
--- Audit fix: bots never caught anything. They now read incoming live throws
--- and open a catch stance through CatchService, same path as players.
+--
+-- Aggression fix: the catch branch used to end in `continue`, which skipped
+-- ball pursuit and throwing entirely. A bot without a ball stood frozen,
+-- reacting to threats forever. Catching is now an overlay that never blocks
+-- the rest of the behaviour, with a real cooldown between attempts.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -22,6 +25,9 @@ local usedNames = {}
 local slotCount = { [1] = 0, [2] = 0 }
 local state = {}
 local claims = {}
+
+local CATCH_COOLDOWN = 0.9
+local CATCH_CHANCE = 0.4
 
 local SKIN = {
 	Color3.fromRGB(255, 208, 164), Color3.fromRGB(238, 190, 150),
@@ -208,9 +214,9 @@ local function think(bot)
 	local throwLine = Vector3.new(info.laneX, root.Position.Y, sign * (CFG.BotAI.CenterMargin + CFG.BotAI.ThrowLineOffset))
 	local aimError = CFG.Bots.AimErrorMin + math.random() * (CFG.Bots.AimErrorMax - CFG.Bots.AimErrorMin)
 	local lastThrowAt = 0
+	local nextCatchTry = 0
 	local wander = Vector3.zero
 	local nextWander = 0
-	local nextCatchTry = 0
 
 	while bot.Parent and humanoid.Health > 0 do
 		task.wait(CFG.BotAI.TickSeconds)
@@ -222,25 +228,12 @@ local function think(bot)
 		local now = os.clock()
 		purgeClaims(now)
 
-		-- Catch first: a live throw heading at this bot is the highest priority.
-		local threat, threatDist = BallService.IncomingThreat(root, CFG.BotAI.CatchRange)
-		if threat and now > nextCatchTry and not bot:GetAttribute("Carrying") then
-			nextCatchTry = now + CFG.BotAI.CatchReaction
-			if math.random() < CFG.BotAI.CatchChance then
-				local flight = threatDist / math.max(threat.AssemblyLinearVelocity.Magnitude, 1)
-				CatchService.OpenStance(bot, math.clamp(flight + 0.35, 0.3, 1.4))
-			else
-				local velocity = threat.AssemblyLinearVelocity.Unit
-				local side = Vector3.new(-velocity.Z, 0, velocity.X)
-				if math.random() < 0.5 then side = -side end
-				humanoid:MoveTo(clampToHalf(root.Position + side * CFG.BotAI.EvadeStrafe, team))
-			end
-			continue
-		end
-
 		local held = BallService.GetHeld(bot)
+
 		if held then
+			-- Carrying: step up and throw. Nothing else competes with this.
 			humanoid:MoveTo(clampToHalf(throwLine + separation(bot, root), team))
+
 			if now - lastThrowAt >= CFG.BotAI.ThrowInterval then
 				local enemy = nearestEnemy(bot)
 				local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
@@ -250,6 +243,7 @@ local function think(bot)
 					local ballsFolder = workspace:FindFirstChild("Balls")
 					local exclude = { bot }
 					if ballsFolder then table.insert(exclude, ballsFolder) end
+
 					if lineOfSight(origin, target, exclude, enemy) then
 						local charge = 0.55 + math.random() * 0.35
 						local t = math.clamp((charge - CFG.Throw.ChargeMin) / (CFG.Throw.ChargeMax - CFG.Throw.ChargeMin), 0, 1)
@@ -259,14 +253,37 @@ local function think(bot)
 						if BallService.Throw(bot, held, (dir + jitter).Unit, charge) then
 							lastThrowAt = now
 						end
+					else
+						-- No line: sidestep within the lane instead of standing still.
+						local side = Vector3.new(math.random(-8, 8), 0, 0)
+						humanoid:MoveTo(clampToHalf(throwLine + side, team))
 					end
 				end
 			end
 		else
+			-- Empty handed: catching is an overlay, never a replacement for play.
+			if now > nextCatchTry then
+				local threat, threatDist = BallService.IncomingThreat(root, CFG.BotAI.CatchRange)
+				if threat then
+					nextCatchTry = now + CATCH_COOLDOWN
+					if math.random() < CATCH_CHANCE then
+						local flight = threatDist / math.max(threat.AssemblyLinearVelocity.Magnitude, 1)
+						CatchService.OpenStance(bot, math.clamp(flight + 0.35, 0.3, 1.4))
+					elseif math.random() < CFG.BotAI.EvadeChance then
+						local velocity = threat.AssemblyLinearVelocity.Unit
+						local side = Vector3.new(-velocity.Z, 0, velocity.X)
+						if math.random() < 0.5 then side = -side end
+						humanoid:MoveTo(clampToHalf(root.Position + side * CFG.BotAI.EvadeStrafe, team))
+					end
+				end
+			end
+
+			-- Always pursue a ball or hold the lane, even while reacting.
 			local target = ownClaim(bot)
 			if not target or not target.Parent or target:GetAttribute("HeldBy") then
 				target = claimBall(bot, team, root, now)
 			end
+
 			if target then
 				humanoid:MoveTo(clampToHalf(target.Position + separation(bot, root), team))
 			else
