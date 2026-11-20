@@ -1,54 +1,105 @@
--- WorldService: lighting only.
--- Audit fix: this script assigned Lighting.Technology (protected) and rebuilt
--- geometry that already lives in the place file. Both removed. Geometry is
--- authored in the place; this service only tunes writable lighting values.
+-- WorldService: plain default rendering.
+--
+-- Rollback. Six lighting passes made the court worse each time, so this now
+-- removes every custom effect, restores neutral daylight, turns all neon into
+-- ordinary lit plastic and disables the spot fixtures. No bloom, no atmosphere,
+-- no colour grading, no glow.
+--
+-- MapService still tries to apply its own theme lighting on a venue change,
+-- so this re-asserts on theme change and on a slow timer.
 
 local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
 
 local WorldService = {}
 
-local function effect(class, name, props)
-	local item = Lighting:FindFirstChild(name)
-	if not item then
-		item = Instance.new(class)
-		item.Name = name
-		item.Parent = Lighting
+local EFFECTS = { "RDBloom", "RDGrade", "RDRays", "RDAir", "RDImpactCorrection" }
+
+local function stripEffects()
+	for _, name in ipairs(EFFECTS) do
+		local item = Lighting:FindFirstChild(name)
+		if item then item:Destroy() end
 	end
-	for key, value in pairs(props) do
-		item[key] = value
+	for _, item in ipairs(Lighting:GetChildren()) do
+		if item:IsA("PostEffect") then item:Destroy() end
 	end
-	return item
+	local sky = Lighting:FindFirstChildOfClass("Sky")
+	if sky then sky:Destroy() end
+end
+
+local function neutralLighting()
+	Lighting.Brightness = 2
+	Lighting.Ambient = Color3.fromRGB(80, 80, 80)
+	Lighting.OutdoorAmbient = Color3.fromRGB(140, 140, 140)
+	Lighting.ColorShift_Top = Color3.fromRGB(0, 0, 0)
+	Lighting.ColorShift_Bottom = Color3.fromRGB(0, 0, 0)
+	Lighting.EnvironmentDiffuseScale = 0.4
+	Lighting.EnvironmentSpecularScale = 0.4
+	Lighting.GlobalShadows = true
+	Lighting.ShadowSoftness = 0.2
+	Lighting.ClockTime = 14
+	Lighting.GeographicLatitude = 41
+	Lighting.ExposureCompensation = 0
+	Lighting.FogEnd = 100000
+	Lighting.FogStart = 0
+end
+
+local function plainMaterials()
+	local decor = Workspace:FindFirstChild("WorldDecor")
+	if not decor then return 0 end
+	local changed = 0
+	for _, item in ipairs(decor:GetDescendants()) do
+		if item:IsA("BasePart") then
+			if item.Material == Enum.Material.Neon then
+				item.Material = Enum.Material.SmoothPlastic
+				changed += 1
+			end
+			item.Reflectance = 0
+			item.LocalTransparencyModifier = 0
+		elseif item:IsA("SpotLight") or item:IsA("PointLight") or item:IsA("SurfaceLight") then
+			item.Enabled = false
+		elseif item:IsA("ParticleEmitter") then
+			item.Enabled = false
+		end
+	end
+	return changed
+end
+
+local function apply()
+	stripEffects()
+	neutralLighting()
+	local n = plainMaterials()
+	return n
 end
 
 function WorldService.Init()
-	Lighting.GlobalShadows = true
-	Lighting.ShadowSoftness = 0.3
-	Lighting.ClockTime = 15.2
-	Lighting.GeographicLatitude = 14
-	Lighting.Brightness = 2.2
-	Lighting.EnvironmentDiffuseScale = 0.45
-	Lighting.EnvironmentSpecularScale = 0.7
-	Lighting.Ambient = Color3.fromRGB(66, 76, 100)
-	Lighting.OutdoorAmbient = Color3.fromRGB(92, 106, 136)
-	Lighting.ColorShift_Top = Color3.fromRGB(255, 236, 208)
-	Lighting.ColorShift_Bottom = Color3.fromRGB(58, 72, 110)
-
-	effect("Atmosphere", "RDAir", {
-		Density = 0.28, Offset = 0.15,
-		Color = Color3.fromRGB(168, 190, 225),
-		Decay = Color3.fromRGB(52, 66, 100),
-		Glare = 0.2, Haze = 1.3,
-	})
-	effect("BloomEffect", "RDBloom", { Intensity = 0.45, Size = 24, Threshold = 1.1 })
-	effect("ColorCorrectionEffect", "RDGrade", {
-		Saturation = 0.16, Contrast = 0.2, Brightness = 0,
-		TintColor = Color3.fromRGB(255, 250, 244),
-	})
-	effect("SunRaysEffect", "RDRays", { Intensity = 0.045, Spread = 0.5 })
-
-	print("[World] lighting tuned")
+	local n = apply()
+	print("[World] plain default rendering, " .. n .. " neon parts converted")
 end
 
-function WorldService.Start() end
+function WorldService.Start()
+	task.spawn(function()
+		local decor = Workspace:WaitForChild("WorldDecor", 40)
+		if decor then
+			decor:GetAttributeChangedSignal("Theme"):Connect(function()
+				task.wait(0.8)
+				apply()
+			end)
+			decor.DescendantAdded:Connect(function(item)
+				if item:IsA("BasePart") and item.Material == Enum.Material.Neon then
+					task.wait()
+					item.Material = Enum.Material.SmoothPlastic
+				elseif item:IsA("SpotLight") or item:IsA("PointLight") then
+					task.wait()
+					item.Enabled = false
+				end
+			end)
+		end
+		while true do
+			task.wait(3)
+			apply()
+		end
+	end)
+end
 
 return WorldService
