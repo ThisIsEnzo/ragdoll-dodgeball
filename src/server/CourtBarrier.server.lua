@@ -1,12 +1,13 @@
--- CourtBarrier: the halfway line is a wall, not a rubber band.
+-- CourtBarrier: solid for players, open for balls.
 --
--- The old rule applied a backward velocity twelve times a second, so walking
--- toward the centre felt like being shoved. This replaces it with a physical
--- barrier in its own collision group: players and bots stop against it,
--- balls pass straight through.
+-- Previous failure: this script ran before Bootstrap, so Collision.Setup had
+-- not registered Balls / HeldBalls yet. Every CollisionGroupSetCollidable call
+-- failed inside pcall and an unregistered pair defaults to COLLIDABLE, which
+-- made the wall stop the ball too.
 --
--- The barrier is solid only during Live and SuddenDeath. Between rounds it
--- opens so spawns, benches and revives can move bodies freely.
+-- Now the collision module is initialised here first, every group is registered
+-- explicitly, pairings are re-asserted for a few seconds, and the actual
+-- collidability is printed so it can be verified instead of assumed.
 
 local PhysicsService = game:GetService("PhysicsService")
 local RunService = game:GetService("RunService")
@@ -16,34 +17,36 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CFG = require(Shared:WaitForChild("BalanceConfig"))
+local Collision = require(Shared:WaitForChild("Collision"))
 local Resolve = require(Shared:WaitForChild("Resolve"))
 
 local RoundService = Resolve.Require(ServerScriptService, "RoundService")
 
-local GROUP = "CentreBarrier"
+-- Make sure the shared groups exist before any pairing is attempted.
+pcall(function() Collision.Setup() end)
 
-local function ensureGroup(name)
-	local ok = pcall(function()
-		PhysicsService:RegisterCollisionGroup(name)
-	end)
-	return ok
+local GROUPS = { "Players", "Balls", "HeldBalls", "Arena", "CentreBarrier" }
+for _, name in ipairs(GROUPS) do
+	pcall(function() PhysicsService:RegisterCollisionGroup(name) end)
 end
 
-ensureGroup(GROUP)
+local PASS = { Balls = false, HeldBalls = false, Arena = false, CentreBarrier = false }
+local BLOCK = { Players = true, Default = true }
 
-local function pair(other, collidable)
-	pcall(function()
-		PhysicsService:CollisionGroupSetCollidable(GROUP, other, collidable)
-	end)
+local function assertPairs()
+	for name, collidable in pairs(PASS) do
+		pcall(function()
+			PhysicsService:CollisionGroupSetCollidable("CentreBarrier", name, collidable)
+		end)
+	end
+	for name, collidable in pairs(BLOCK) do
+		pcall(function()
+			PhysicsService:CollisionGroupSetCollidable("CentreBarrier", name, collidable)
+		end)
+	end
 end
 
--- Players and anything untagged are stopped. Balls fly through.
-pair("Players", true)
-pair("Default", true)
-pair("Balls", false)
-pair("HeldBalls", false)
-pair("Arena", false)
-pair(GROUP, false)
+assertPairs()
 
 local barrier = Workspace:FindFirstChild("CentreBarrier")
 if barrier then barrier:Destroy() end
@@ -58,10 +61,9 @@ barrier.CanCollide = false
 barrier.CanTouch = false
 barrier.CanQuery = false
 barrier.CastShadow = false
-barrier.CollisionGroup = GROUP
+barrier.CollisionGroup = "CentreBarrier"
 barrier.Parent = Workspace
 
--- A readable line on the floor so the boundary is visible, not a surprise.
 local marker = Instance.new("Part")
 marker.Name = "CentreLine"
 marker.Anchored = true
@@ -82,21 +84,41 @@ end
 
 local function sync()
 	local solid = isLive()
-	if barrier.CanCollide ~= solid then
-		barrier.CanCollide = solid
-	end
+	if barrier.CanCollide ~= solid then barrier.CanCollide = solid end
 	marker.Transparency = if solid then 0.25 else 0.75
 end
 
 RoundService.StateChanged.Event:Connect(sync)
 
+-- Re-assert for the first few seconds: Collision.Setup may run again from
+-- another service and reset the matrix.
+task.spawn(function()
+	for _ = 1, 12 do
+		assertPairs()
+		task.wait(0.5)
+	end
+
+	local function report(a, b)
+		local ok, value = pcall(function()
+			return PhysicsService:CollisionGroupsAreCollidable(a, b)
+		end)
+		if ok then return tostring(value) end
+		return "unknown"
+	end
+
+	print("[Barrier] CentreBarrier vs Balls = " .. report("CentreBarrier", "Balls") .. " (want false)")
+	print("[Barrier] CentreBarrier vs Players = " .. report("CentreBarrier", "Players") .. " (want true)")
+	print("[Barrier] CentreBarrier vs Default = " .. report("CentreBarrier", "Default") .. " (want true)")
+end)
+
 local accumulator = 0
 RunService.Heartbeat:Connect(function(dt)
 	accumulator += dt
-	if accumulator < 0.25 then return end
+	if accumulator < 0.5 then return end
 	accumulator = 0
+	assertPairs()
 	sync()
 end)
 
 sync()
-print("[Barrier] halfway line is solid for players, open for balls")
+print("[Barrier] centre wall up, ball pass-through asserted")
