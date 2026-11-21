@@ -10,13 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 SCRIPT_SUFFIXES = (".server.lua", ".client.lua")
-RE_RETURN_VALUE = re.compile(r"^return\\s+\\S", re.MULTILINE)
-RE_TECHNOLOGY = re.compile(r"Lighting\\s*\\.\\s*Technology\\s*=")
-RE_IF_ARG = re.compile(r"[\\w\\]]\\s*\\(\\s*if\\s|:\\s*\\w+\\s*\\(\\s*if\\s")
-RE_RESOLVE = re.compile(r'Resolve\\s*\\.\\s*Require\\s*\\(\\s*[\\w_]+\\s*,\\s*"([\\w_]+)"')
-RE_SHARED_REQ = re.compile(r'require\\s*\\(\\s*Shared\\s*:\\s*WaitForChild\\s*\\(\\s*"([\\w_]+)"')
-RE_CFG_SECTION = re.compile(r"\\bCFG\\s*\\.\\s*([A-Za-z_]\\w*)")
-RE_CONFIG_SECTION = re.compile(r"^\\t([A-Za-z_]\\w*)\\s*=\\s*\\{", re.MULTILINE)
+RE_RETURN_VALUE = re.compile(r"^return\s+\S", re.MULTILINE)
+RE_TECHNOLOGY = re.compile(r"Lighting\s*\.\s*Technology\s*=")
+RE_IF_ARG = re.compile(r"[\w\]]\s*\(\s*if\s|:\s*\w+\s*\(\s*if\s")
+RE_RESOLVE = re.compile(r'Resolve\s*\.\s*Require\s*\(\s*[\w_]+\s*,\s*"([\w_]+)"')
+RE_SHARED_REQ = re.compile(r'require\s*\(\s*Shared\s*:\s*WaitForChild\s*\(\s*"([\w_]+)"')
+RE_CFG_SECTION = re.compile(r"\bCFG\s*\.\s*([A-Za-z_]\w*)")
+RE_CONFIG_SECTION = re.compile(r"^\t([A-Za-z_]\w*)\s*=\s*\{", re.MULTILINE)
 
 class Report:
     def __init__(self, github: bool) -> None:
@@ -37,7 +37,7 @@ class Report:
 def lua_files() -> list[Path]:
     return sorted(p for p in SRC.rglob("*.lua") if p.is_file()) if SRC.exists() else []
 def line_of(text: str, index: int) -> int:
-    return text.count("\\n", 0, index) + 1
+    return text.count("\n", 0, index) + 1
 def read_text(path: Path) -> str:
     return path.read_bytes().decode("utf-8", errors="replace")
 
@@ -122,9 +122,9 @@ def check_project_json(rep: Report) -> None:
 def check_encoding(rep: Report, files: list[Path]) -> None:
     for path in files:
         raw = path.read_bytes()
-        if raw.startswith(b"\\xef\\xbb\\xbf"):
+        if raw.startswith(b"\xef\xbb\xbf"):
             rep.error("R07", path, 1, "UTF-8 BOM present; Rojo embeds it in Source.")
-        if b"\\r\\n" in raw:
+        if b"\r\n" in raw:
             rep.warn("R10", path, 1, "CRLF line endings (normalization may break patch scripts).")
 
 def check_config_sections(rep: Report, files: list[Path]) -> None:
