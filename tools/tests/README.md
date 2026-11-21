@@ -27,3 +27,8 @@ luau tools/tests/run.lua
 
 The suite prints `TESTS_FAILED=N` and exits non-zero if any assertion fails.
 Roblox Studio playtesting is still required for physics, input, UI and networking.
+
+
+## Known configuration warning
+
+The current `DodgeSpeed` (52) exceeds the configured movement anti-cheat ceiling (48.4). The suite reports this as `KNOWN_ISSUE` rather than failing CI: it is a gameplay/security tuning decision and must be resolved separately, not hidden by changing a test expectation.
