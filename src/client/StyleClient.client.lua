@@ -2,7 +2,6 @@
 -- The client only requests purchases/equips; the server validates ownership and price.
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
