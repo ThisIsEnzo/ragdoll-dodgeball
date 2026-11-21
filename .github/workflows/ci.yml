@@ -59,9 +59,11 @@ jobs:
           fi
           chmod +x "$RUNNER" "$COMPILER"
           [ -z "$ANALYZER" ] || chmod +x "$ANALYZER"
-          echo "LUAU_RUN=$RUNNER" >> "$GITHUB_ENV"
-          echo "LUAU_COMPILE=$COMPILER" >> "$GITHUB_ENV"
-          echo "LUAU_ANALYZE=$ANALYZER" >> "$GITHUB_ENV"
+          {
+            echo "LUAU_RUN=$RUNNER"
+            echo "LUAU_COMPILE=$COMPILER"
+            echo "LUAU_ANALYZE=$ANALYZER"
+          } >> "$GITHUB_ENV"
 
       - name: Compile every Luau file
         run: |
