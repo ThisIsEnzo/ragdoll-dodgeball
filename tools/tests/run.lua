@@ -11,7 +11,18 @@ local passed,failed=0,0
 local missing={}
 local function test(name,fn) local ok,err=pcall(fn); if ok then passed+=1 else failed+=1; print("FAIL  "..name.." -> "..tostring(err)) end end
 local function assertTrue(c,m) if not c then error(m,2) end end
-local function load(name) local ok,v=pcall(function() return require("../../src/shared/"..name) end); if not ok then missing[#missing+1]=name; print("LOAD_ERROR "..name..": "..tostring(v)); return nil end; return v end
+local function load(name)
+	local path = "src/shared/" .. name .. ".lua"
+	local file = io.open(path, "r")
+	if not file then missing[#missing+1]=name; print("LOAD_ERROR "..name..": file not found: "..path); return nil end
+	local source = file:read("*a")
+	file:close()
+	local chunk, compileError = loadstring(source, "@" .. path)
+	if not chunk then missing[#missing+1]=name; print("LOAD_ERROR "..name..": "..tostring(compileError)); return nil end
+	local ok, value = pcall(setfenv(chunk, getfenv()))
+	if not ok then missing[#missing+1]=name; print("LOAD_ERROR "..name..": "..tostring(value)); return nil end
+	return value
+end
 local CFG=load("BalanceConfig")
 local Loadout=load("Loadout")
 local Ranks=load("RankCatalog")
