@@ -18,6 +18,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CFG = require(Shared:WaitForChild("BalanceConfig"))
 local Resolve = require(Shared:WaitForChild("Resolve"))
 
+local DataService = Resolve.Require(ServerScriptService, "DataService")
 local ProgressionService = Resolve.Require(ServerScriptService, "ProgressionService")
 local MatchService = Resolve.Require(ServerScriptService, "MatchService")
 local AntiCheat = Resolve.Require(ServerScriptService, "AntiCheat")
@@ -30,6 +31,7 @@ local membership = {}
 local offers = {}
 local friendsCache = {}
 local nextPartyId = 1
+local matchSnapshot = {}
 
 local wasRunning = false
 
@@ -280,31 +282,51 @@ friendsRemote.OnServerEvent:Connect(function(player)
 	friendsRemote:FireClient(player, list)
 end)
 
--- Party coin bonus, applied once per finished match.
-local function payPartyBonus()
-	local paid = {}
-	for partyId, party in pairs(parties) do
-		local members = membersOf(partyId)
-		if #members >= 2 then
-			local perMember = math.floor(CFG.Progression.MatchWinCoins * CFG.Economy.PartyBonus * (#members - 1))
-			if perMember > 0 then
-				for _, userId in ipairs(members) do
-					local target = Players:GetPlayerByUserId(userId)
-					if target and not paid[userId] then
-						paid[userId] = true
-						if typeof(ProgressionService.GrantCoins) == "function" then
-							ProgressionService.GrantCoins(target, perMember)
-						else
-							ProgressionService.AddCoins(target, perMember)
-						end
-					end
-				end
-				print(string.format("[Party] party %d: +%d coins each to %d members", partyId, perMember, #members))
-			end
+-- Snapshot match counters at match start, and award only actual participants.
+local function beginMatch()
+	table.clear(matchSnapshot)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local data = DataService.Get(player)
+		if data and typeof(data.matches) == "number" then
+			matchSnapshot[player.UserId] = data.matches
 		end
 	end
 end
 
+local function participated(userId)
+	local baseline = matchSnapshot[userId]
+	if baseline == nil then return false end
+	local player = Players:GetPlayerByUserId(userId)
+	if not player then return false end
+	local data = DataService.Get(player)
+	return data ~= nil and typeof(data.matches) == "number" and data.matches > baseline
+end
+
+local function payPartyBonus()
+	local paid = {}
+	for partyId in pairs(parties) do
+		local members = membersOf(partyId)
+		local eligible = {}
+		for _, userId in ipairs(members) do
+			if participated(userId) then table.insert(eligible, userId) end
+		end
+		if #eligible >= 2 then
+			local perMember = math.floor(CFG.Progression.MatchWinCoins * CFG.Economy.PartyBonus * (#eligible - 1))
+			if perMember > 0 then
+				for _, userId in ipairs(eligible) do
+					local target = Players:GetPlayerByUserId(userId)
+					if target and not paid[userId] then
+						paid[userId] = true
+					ProgressionService.GrantCoins(target, perMember)
+					end
+				end
+				print(string.format("[Party] party %d: +%d coins each to %d match participants", partyId, perMember, #eligible))
+				end
+			end
+			end
+			end
+			end
+			end
 local accumulator = 0
 RunService.Heartbeat:Connect(function(dt)
 	accumulator += dt
@@ -312,7 +334,9 @@ RunService.Heartbeat:Connect(function(dt)
 	accumulator = 0
 
 	local running = MatchService.IsRunning()
-	if not running and wasRunning then
+	if running and not wasRunning then
+		beginMatch()
+	elseif not running and wasRunning then
 		payPartyBonus()
 	end
 	wasRunning = running
