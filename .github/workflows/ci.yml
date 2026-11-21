@@ -28,6 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Build self-contained balance test runner
+        run: python3 tools/tests/build_runner.py --output /tmp/ragdoll-balance-runner.lua
+
       - name: Download Luau toolchain
         run: |
           set -euo pipefail
