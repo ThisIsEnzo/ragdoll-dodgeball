@@ -235,6 +235,10 @@ end
 local headers = {}
 
 function render()
+	-- Clear pooled row actions before assigning new roles for this render.
+	for _, row in ipairs(rowPool) do
+		row.handler = nil
+	end
 	for _, header in ipairs(headers) do
 		header:Destroy()
 	end
