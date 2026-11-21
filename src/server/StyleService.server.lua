@@ -236,22 +236,32 @@ end)
 
 equipRemote.OnServerEvent:Connect(function(player, kind, key)
 	if not validRequest(player, kind, key) then return end
-	local record = records[player.UserId]
-	if not record then return end
-	local previousTrail, previousEffect, previousTitle = record.trail, record.effect, record.title
-	if kind == "trail" or kind == "effect" then
+	local userId = player.UserId
+	local record = records[userId]
+	if not record or busy[userId] then return end
+
+	local nextTrail, nextEffect, nextTitle = record.trail, record.effect, record.title
+	if kind == "trail" then
 		if not owns(record, kind, key) then return end
-		if kind == "trail" then record.trail = key else record.effect = key end
+		nextTrail = key
+	elseif kind == "effect" then
+		if not owns(record, kind, key) then return end
+		nextEffect = key
 	elseif kind == "title" then
 		local entry = Catalog.TitleByKey[key]
 		if not entry or not getTitleUnlocked(player, entry) then return end
-		record.title = key
+		nextTitle = key
 	else
 		return
 	end
+
+	busy[userId] = true
+	local previousTrail, previousEffect, previousTitle = record.trail, record.effect, record.title
+	record.trail, record.effect, record.title = nextTrail, nextEffect, nextTitle
 	if record.storageReady and not saveRecord(player) then
 		record.trail, record.effect, record.title = previousTrail, previousEffect, previousTitle
 	end
+	busy[userId] = nil
 	pushState(player)
 end)
 
