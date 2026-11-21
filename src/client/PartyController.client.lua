@@ -222,8 +222,13 @@ local function getRow(index)
 	}, frame)
 	make("UICorner", { CornerRadius = UDim.new(0, 7) }, action)
 
-	row = { frame = frame, name = name, sub = sub, action = action, dot = dot, stroke = stroke }
+	row = { frame = frame, name = name, sub = sub, action = action, dot = dot, stroke = stroke, handler = nil }
 	rowPool[index] = row
+	-- One permanent connection per pooled row; render swaps handler only.
+	action.Activated:Connect(function()
+		local handler = row.handler
+		if handler then handler() end
+	end)
 	return row
 end
 
@@ -267,9 +272,9 @@ function render()
 				row.action.Text = "LEAVE"
 				row.action.BackgroundColor3 = Color3.fromRGB(70, 30, 34)
 				row.action.TextColor3 = Color3.fromRGB(255, 160, 150)
-				row.action.Activated:Connect(function()
-					leaveRemote:FireServer()
-				end)
+				row.handler = function()
+				leaveRemote:FireServer()
+				end
 			else
 				row.action.Text = "TOGETHER"
 				row.action.BackgroundColor3 = Color3.fromRGB(30, 70, 44)
@@ -302,12 +307,13 @@ function render()
 				row.action.BackgroundColor3 = CYAN
 				row.action.TextColor3 = Color3.fromRGB(4, 22, 30)
 				local targetId = entry.userId
-				row.action.Activated:Connect(function()
+				row.handler = function()
 					inviteRemote:FireServer(targetId)
 					row.action.Text = "SENT"
 					row.action.BackgroundColor3 = SURFACE2
 					row.action.TextColor3 = DIM
-				end)
+					row.handler = nil
+				end
 			end
 		end
 	end
