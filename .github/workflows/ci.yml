@@ -80,10 +80,16 @@ jobs:
           "$LUAU_ANALYZE" "${FILES[@]}" > analyze.txt 2>&1 || true
           cat analyze.txt
 
+      - name: Build self-contained balance test runner
+        run: |
+          set -euo pipefail
+          python3 tools/tests/build_runner.py --output build/balance-tests.lua
+          "$LUAU_COMPILE" build/balance-tests.lua > /dev/null
+
       - name: Run balance invariant tests
         run: |
           set -euo pipefail
-          "$LUAU_RUN" tools/tests/run.lua | tee tests.txt
+          "$LUAU_RUN" build/balance-tests.lua | tee tests.txt
           grep -q "TESTS_FAILED=0" tests.txt
 
       - uses: actions/upload-artifact@v4
