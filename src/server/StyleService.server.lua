@@ -18,6 +18,7 @@ local STORE = DataStoreService:GetDataStore("RagdollDodgeball_Style_v1")
 local records = {}
 local loading = {}
 local warnedStore = false
+local busy = {}
 
 local folder = ReplicatedStorage:FindFirstChild("StyleRemotes")
 if not folder then
@@ -200,9 +201,11 @@ end
 buyRemote.OnServerEvent:Connect(function(player, kind, key)
 	if not validRequest(player, kind, key) then return end
 	if kind == "title" then return end -- titles are earned, never purchasable
-	local record = records[player.UserId]
+	local userId = player.UserId
+	if busy[userId] then return end
+	local record = records[userId]
 	local data = DataService.Get(player)
-	if not record or not data or not record.storageReady then return end
+	if not record or not data or not record.storageReady or not DataService.IsPersistent(player) then return end
 	local map = if kind == "effect" then Catalog.EffectByKey else Catalog.TrailByKey
 	local entry = map[key]
 	if not entry or entry.price <= 0 or (kind ~= "trail" and kind ~= "effect") then return end
@@ -210,7 +213,11 @@ buyRemote.OnServerEvent:Connect(function(player, kind, key)
 		pushState(player)
 		return
 	end
-	if not ProgressionService.SpendCoins(player, entry.price) then
+
+	busy[userId] = true
+	local spent = ProgressionService.SpendCoins(player, entry.price)
+	if not spent then
+		busy[userId] = nil
 		pushState(player)
 		return
 	end
@@ -222,9 +229,8 @@ buyRemote.OnServerEvent:Connect(function(player, kind, key)
 		record.owned[kind .. ":" .. key] = nil
 		record.trail, record.effect = previousTrail, previousEffect
 		ProgressionService.GrantCoins(player, entry.price)
-		pushState(player)
-		return
 	end
+	busy[userId] = nil
 	pushState(player)
 end)
 
@@ -261,6 +267,7 @@ Players.PlayerRemoving:Connect(function(player)
 	saveRecord(player)
 	records[player.UserId] = nil
 	loading[player.UserId] = nil
+	busy[player.UserId] = nil
 end)
 
 game:BindToClose(function()
