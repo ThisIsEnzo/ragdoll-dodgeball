@@ -110,15 +110,21 @@ jobs:
       - name: Download Rojo
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location https://api.github.com/repos/rojo-rbx/rojo/releases/latest -o rojo-release.json
-          URL=$(python3 -c 'import json; d=json.load(open("rojo-release.json")); print(next(a["browser_download_url"] for a in d["assets"] if "linux-x86_64" in a["name"].lower() and a["name"].endswith(".zip")))' )
-          echo "fetching $URL"
-          curl -sSL "$URL" -o rojo.zip
+          VERSION=7.7.1
+          URL="https://github.com/rojo-rbx/rojo/releases/download/v${VERSION}/rojo-${VERSION}-linux-x86_64.zip"
+          echo "Downloading pinned Rojo ${VERSION}: ${URL}"
+          curl --fail --silent --show-error --location "${URL}" -o rojo.zip
           mkdir -p rojo-bin
           unzip -o -q rojo.zip -d rojo-bin
-          BIN=$(find rojo-bin -type f -name 'rojo*' | head -1)
-          chmod +x "$BIN"
-          echo "ROJO_BIN=$BIN" >> "$GITHUB_ENV"
+          BIN=$(find rojo-bin -type f -name rojo -print -quit)
+          if [ -z "${BIN}" ]; then
+            echo "::error::Rojo binary missing from release archive"
+            find rojo-bin -maxdepth 3 -type f -print
+            exit 1
+          fi
+          chmod +x "${BIN}"
+          "${BIN}" --version
+          echo "ROJO_BIN=${BIN}" >> "${GITHUB_ENV}"
 
       - name: Build place file
         run: |
