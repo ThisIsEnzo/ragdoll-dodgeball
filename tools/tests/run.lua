@@ -12,15 +12,28 @@ local missing={}
 local function test(name,fn) local ok,err=pcall(fn); if ok then passed+=1 else failed+=1; print("FAIL  "..name.." -> "..tostring(err)) end end
 local function assertTrue(c,m) if not c then error(m,2) end end
 local function load(name)
-	local path = "src/shared/" .. name .. ".lua"
-	local file = io.open(path, "r")
-	if not file then missing[#missing+1]=name; print("LOAD_ERROR "..name..": file not found: "..path); return nil end
-	local source = file:read("*a")
-	file:close()
-	local chunk, compileError = loadstring(source, "@" .. path)
-	if not chunk then missing[#missing+1]=name; print("LOAD_ERROR "..name..": "..tostring(compileError)); return nil end
-	local ok, value = pcall(setfenv(chunk, getfenv()))
-	if not ok then missing[#missing+1]=name; print("LOAD_ERROR "..name..": "..tostring(value)); return nil end
+	local source = TEST_MODULE_SOURCES[name]
+	if not source then
+		missing[#missing+1] = name
+		print("LOAD_ERROR " .. name .. ": embedded source missing")
+		return nil
+	end
+	local chunk, compileError = loadstring(source, "@src/shared/" .. name .. ".lua")
+	if not chunk then
+		missing[#missing+1] = name
+		print("LOAD_ERROR " .. name .. ": " .. tostring(compileError))
+		return nil
+	end
+	-- A fresh module environment inherits the runner's Roblox shims and
+	-- standard Luau globals. Production module code remains unchanged.
+	local moduleEnv = setmetatable({}, { __index = getfenv() })
+	setfenv(chunk, moduleEnv)
+	local ok, value = pcall(chunk)
+	if not ok then
+		missing[#missing+1] = name
+		print("LOAD_ERROR " .. name .. ": " .. tostring(value))
+		return nil
+	end
 	return value
 end
 local CFG=load("BalanceConfig")
