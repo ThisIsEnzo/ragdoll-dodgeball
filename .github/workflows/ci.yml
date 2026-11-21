@@ -31,35 +31,65 @@ jobs:
       - name: Download Luau toolchain
         run: |
           set -euo pipefail
-          URL=$(curl -sSL https://api.github.com/repos/luau-lang/luau/releases/latest \
-            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'ubuntu' in x['name'].lower()))")
-          echo "fetching $URL"
-          curl -sSL "$URL" -o luau.zip
+          API=https://api.github.com/repos/luau-lang/luau/releases/latest
+          curl --fail --silent --show-error --location "$API" -o luau-release.json
+          URL=$(python3 - <<'PY'
+          import json
+          with open("luau-release.json", encoding="utf-8") as f:
+              assets = json.load(f).get("assets", [])
+          matches = [a["browser_download_url"] for a in assets
+                     if "ubuntu" in a.get("name", "").lower()
+                     and a.get("name", "").lower().endswith(".zip")]
+          if not matches:
+              raise SystemExit("No Ubuntu ZIP asset found in latest Luau release")
+          print(matches[0])
+          PY
+          )
+          echo "Downloading $URL"
+          curl --fail --silent --show-error --location "$URL" -o luau.zip
           mkdir -p luau-bin
           unzip -o -q luau.zip -d luau-bin
-          find luau-bin -maxdepth 2 -type f -printf '%p\\n'
+          find luau-bin -type f -maxdepth 3 -print
+          RUNNER=$(find luau-bin -type f -name luau -print -quit)
+          ANALYZER=$(find luau-bin -type f -name 'luau-analyze*' -print -quit)
+          COMPILER=$(find luau-bin -type f -name 'luau-compile*' -print -quit)
+          if [ -z "$RUNNER" ] || [ -z "$COMPILER" ]; then
+            echo "::error::Luau runner/compiler missing from release archive"
+            exit 1
+          fi
+          chmod +x "$RUNNER" "$COMPILER"
+          [ -z "$ANALYZER" ] || chmod +x "$ANALYZER"
+          echo "LUAU_RUN=$RUNNER" >> "$GITHUB_ENV"
+          echo "LUAU_COMPILE=$COMPILER" >> "$GITHUB_ENV"
+          echo "LUAU_ANALYZE=$ANALYZER" >> "$GITHUB_ENV"
 
-      - name: Analyse every Luau file
+      - name: Compile every Luau file
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(find src tools -type f -name '*.lua' | sort)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::No Luau files found under src/ or tools/"
+            exit 1
+          fi
+          mkdir -p compile-output
+          for file in "${FILES[@]}"; do
+            name=$(echo "$file" | tr '/.' '__')
+            "$LUAU_COMPILE" "$file" > "compile-output/$name.txt"
+          done
+          echo "Successfully compiled ${#FILES[@]} Luau files."
+
+      - name: Analyse Luau files (advisory)
+        if: always()
+        continue-on-error: true
         run: |
           set -uo pipefail
-          BIN=$(find luau-bin -type f -name 'luau-analyze*' | head -1)
-          RUNNER=$(find luau-bin -type f -name 'luau' | head -1)
-          if [ -z "$BIN" ] || [ -z "$RUNNER" ]; then
-            echo "::error::Luau CLI binaries not found in release archive"
-            exit 1
+          if [ -z "${LUAU_ANALYZE:-}" ] || [ ! -x "$LUAU_ANALYZE" ]; then
+            echo "Luau analyzer unavailable; compile step remains the syntax gate."
+            exit 0
           fi
-          chmod +x "$BIN" "$RUNNER"
-          echo "LUAU_ANALYZE=$BIN" >> "$GITHUB_ENV"
-          echo "LUAU_RUN=$RUNNER" >> "$GITHUB_ENV"
-          mapfile -t FILES < <(find src tools -name '*.lua' | sort)
-          echo "analysing ${#FILES[@]} files"
-          "$BIN" "${FILES[@]}" > analyze.txt 2>&1 || true
+          mapfile -t FILES < <(find src tools -type f -name '*.lua' | sort)
+          "$LUAU_ANALYZE" "${FILES[@]}" > analyze.txt 2>&1 || true
           cat analyze.txt
-          if grep -qE 'SyntaxError|Expected .*got|Unexpected token|Ambiguous syntax' analyze.txt; then
-            echo "::error::Luau syntax errors detected"
-            exit 1
-          fi
-          echo "No syntax errors."
 
       - name: Run balance invariant tests
         run: |
