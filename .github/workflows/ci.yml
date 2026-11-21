@@ -43,11 +43,14 @@ jobs:
         run: |
           set -uo pipefail
           BIN=$(find luau-bin -type f -name 'luau-analyze*' | head -1)
-          if [ -z "$BIN" ]; then
-            echo "::error::luau-analyze binary not found in release archive"
+          RUNNER=$(find luau-bin -type f -name 'luau' | head -1)
+          if [ -z "$BIN" ] || [ -z "$RUNNER" ]; then
+            echo "::error::Luau CLI binaries not found in release archive"
             exit 1
           fi
-          chmod +x "$BIN"
+          chmod +x "$BIN" "$RUNNER"
+          echo "LUAU_ANALYZE=$BIN" >> "$GITHUB_ENV"
+          echo "LUAU_RUN=$RUNNER" >> "$GITHUB_ENV"
           mapfile -t FILES < <(find src tools -name '*.lua' | sort)
           echo "analysing ${#FILES[@]} files"
           "$BIN" "${FILES[@]}" > analyze.txt 2>&1 || true
