@@ -1,0 +1,30 @@
+name: CI Diagnostics
+
+on:
+  push:
+    branches:
+      - test/balance-invariants
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    name: Runner and workflow trigger diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm workflow execution
+        run: |
+          echo "DIAGNOSTIC_WORKFLOW_STARTED=true"
+          echo "Event: ${GITHUB_EVENT_NAME}"
+          echo "Ref: ${GITHUB_REF}"
+          echo "SHA: ${GITHUB_SHA}"
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Confirm checkout
+        run: |
+          test -f default.project.json
+          echo "CHECKOUT_OK=true"
