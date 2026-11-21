@@ -18,7 +18,8 @@ function AimAssist.Adjust(origin: Vector3, dir: Vector3, targets: { any }, isMob
 	if dir.Magnitude < 0.01 then return dir end
 
 	local baseDir = dir.Unit
-	local maxAngle = math.rad(if isMobile then CFG.AimAssist.MobileAngleDeg else CFG.AimAssist.DesktopAngleDeg)
+	local angleDeg = if isMobile then CFG.AimAssist.MobileAngleDeg else CFG.AimAssist.DesktopAngleDeg
+	local maxAngle = math.rad(angleDeg)
 
 	local best, bestAngle = nil, maxAngle
 	for _, entry in ipairs(targets) do
