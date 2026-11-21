@@ -58,6 +58,12 @@ jobs:
           fi
           echo "No syntax errors."
 
+      - name: Run balance invariant tests
+        run: |
+          set -euo pipefail
+          "$LUAU_RUN" tools/tests/run.lua | tee tests.txt
+          grep -q "TESTS_FAILED=0" tests.txt
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
