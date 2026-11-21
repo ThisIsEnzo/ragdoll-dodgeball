@@ -516,10 +516,15 @@ end
 
 local function watchPlayer(other)
 	local function onCharacter(character)
-		task.wait(0.3)
+		character:WaitForChild("Head", 5)
 		if character.Parent then refreshTitle(character) end
 	end
 	other.CharacterAdded:Connect(onCharacter)
+	other.CharacterRemoving:Connect(function(character)
+		local billboard = titleGuis[character]
+		if billboard then billboard:Destroy() end
+		titleGuis[character] = nil
+	end)
 	other:GetAttributeChangedSignal("TitleId"):Connect(function()
 		if other.Character then refreshTitle(other.Character) end
 	end)
