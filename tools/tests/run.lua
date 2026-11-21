@@ -14,24 +14,23 @@ local function assertTrue(c,m) if not c then error(m,2) end end
 local function load(name)
 	local source = TEST_MODULE_SOURCES[name]
 	if not source then
-		missing[#missing+1] = name
-		print("LOAD_ERROR " .. name .. ": embedded source missing")
+		missing[#missing+1]=name
+		print("LOAD_ERROR "..name..": embedded source missing")
 		return nil
 	end
-	local chunk, compileError = loadstring(source, "@src/shared/" .. name .. ".lua")
-	if not chunk then
-		missing[#missing+1] = name
-		print("LOAD_ERROR " .. name .. ": " .. tostring(compileError))
-		return nil
-	end
-	-- A fresh module environment inherits the runner's Roblox shims and
-	-- standard Luau globals. Production module code remains unchanged.
+	local path = "src/shared/" .. name .. ".lua"
 	local moduleEnv = setmetatable({}, { __index = getfenv() })
+	local chunk, compileError = loadstring(source, "@" .. path)
+	if not chunk then
+		missing[#missing+1]=name
+		print("LOAD_ERROR "..name..": "..tostring(compileError))
+		return nil
+	end
 	setfenv(chunk, moduleEnv)
 	local ok, value = pcall(chunk)
 	if not ok then
-		missing[#missing+1] = name
-		print("LOAD_ERROR " .. name .. ": " .. tostring(value))
+		missing[#missing+1]=name
+		print("LOAD_ERROR "..name..": "..tostring(value))
 		return nil
 	end
 	return value
