@@ -66,10 +66,11 @@ local function validOwned(source)
 end
 
 local function loadRecord(player)
-	local record = { owned = {}, trail = "none", effect = "default", title = "none" }
+	local record = { owned = {}, trail = "none", effect = "default", title = "none", storageReady = false }
 	local ok, stored = pcall(function()
 		return STORE:GetAsync("style_" .. player.UserId)
 	end)
+	record.storageReady = ok
 	if not ok then
 		warnStore("DataStore unavailable; cosmetics are session-only for this server.")
 	elseif typeof(stored) == "table" then
@@ -84,13 +85,14 @@ local function loadRecord(player)
 			record.title = stored.title
 		end
 	end
+	if player.Parent ~= Players then return nil end
 	records[player.UserId] = record
 	return record
 end
 
 local function saveRecord(player)
 	local record = records[player.UserId]
-	if not record then return false end
+	if not record or not record.storageReady then return false end
 	local payload = {
 		owned = table.clone(record.owned),
 		trail = record.trail,
@@ -200,7 +202,7 @@ buyRemote.OnServerEvent:Connect(function(player, kind, key)
 	if kind == "title" then return end -- titles are earned, never purchasable
 	local record = records[player.UserId]
 	local data = DataService.Get(player)
-	if not record or not data then return end
+	if not record or not data or not record.storageReady then return end
 	local map = if kind == "effect" then Catalog.EffectByKey else Catalog.TrailByKey
 	local entry = map[key]
 	if not entry or entry.price <= 0 or (kind ~= "trail" and kind ~= "effect") then return end
@@ -213,9 +215,16 @@ buyRemote.OnServerEvent:Connect(function(player, kind, key)
 		return
 	end
 
+	local previousTrail, previousEffect = record.trail, record.effect
 	record.owned[kind .. ":" .. key] = true
 	if kind == "trail" then record.trail = key else record.effect = key end
-	saveRecord(player)
+	if not saveRecord(player) then
+		record.owned[kind .. ":" .. key] = nil
+		record.trail, record.effect = previousTrail, previousEffect
+		ProgressionService.GrantCoins(player, entry.price)
+		pushState(player)
+		return
+	end
 	pushState(player)
 end)
 
@@ -223,6 +232,7 @@ equipRemote.OnServerEvent:Connect(function(player, kind, key)
 	if not validRequest(player, kind, key) then return end
 	local record = records[player.UserId]
 	if not record then return end
+	local previousTrail, previousEffect, previousTitle = record.trail, record.effect, record.title
 	if kind == "trail" or kind == "effect" then
 		if not owns(record, kind, key) then return end
 		if kind == "trail" then record.trail = key else record.effect = key end
@@ -233,7 +243,9 @@ equipRemote.OnServerEvent:Connect(function(player, kind, key)
 	else
 		return
 	end
-	saveRecord(player)
+	if record.storageReady and not saveRecord(player) then
+		record.trail, record.effect, record.title = previousTrail, previousEffect, previousTitle
+	end
 	pushState(player)
 end)
 
