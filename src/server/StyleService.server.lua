@@ -90,7 +90,7 @@ end
 
 local function saveRecord(player)
 	local record = records[player.UserId]
-	if not record or not player.Parent then return false end
+	if not record then return false end
 	local payload = {
 		owned = table.clone(record.owned),
 		trail = record.trail,
@@ -118,10 +118,6 @@ local function getTitleUnlocked(player, entry)
 end
 
 local function owns(record, kind, key)
-	if kind == "title" then
-		local entry = Catalog.TitleByKey[key]
-		return entry ~= nil and getTitleUnlocked(player, entry)
-	end
 	local map = if kind == "effect" then Catalog.EffectByKey else Catalog.TrailByKey
 	local entry = map[key]
 	if not entry then return false end
@@ -178,9 +174,13 @@ local function loadPlayer(player)
 			if DataService.Get(player) then break end
 			task.wait(0.1)
 		end
-		if player.Parent and DataService.Get(player) then
+		if player.Parent == Players and DataService.Get(player) then
 			loadRecord(player)
-			pushState(player)
+			if player.Parent == Players then
+				pushState(player)
+			else
+				records[player.UserId] = nil
+			end
 		else
 			warn("[Style] Profile did not become available for " .. player.Name .. "; shop disabled for this session.")
 		end
