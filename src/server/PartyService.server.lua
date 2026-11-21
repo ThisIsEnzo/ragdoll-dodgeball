@@ -282,7 +282,7 @@ friendsRemote.OnServerEvent:Connect(function(player)
 	friendsRemote:FireClient(player, list)
 end)
 
--- Snapshot match counters at match start, and award only actual participants.
+-- Snapshot profile match counts at match start; only participants can earn bonus.
 local function beginMatch()
 	table.clear(matchSnapshot)
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -308,8 +308,11 @@ local function payPartyBonus()
 		local members = membersOf(partyId)
 		local eligible = {}
 		for _, userId in ipairs(members) do
-			if participated(userId) then table.insert(eligible, userId) end
+			if participated(userId) then
+				table.insert(eligible, userId)
+			end
 		end
+
 		if #eligible >= 2 then
 			local perMember = math.floor(CFG.Progression.MatchWinCoins * CFG.Economy.PartyBonus * (#eligible - 1))
 			if perMember > 0 then
@@ -317,16 +320,16 @@ local function payPartyBonus()
 					local target = Players:GetPlayerByUserId(userId)
 					if target and not paid[userId] then
 						paid[userId] = true
-					ProgressionService.GrantCoins(target, perMember)
+						ProgressionService.GrantCoins(target, perMember)
 					end
 				end
-				print(string.format("[Party] party %d: +%d coins each to %d match participants", partyId, perMember, #eligible))
-				end
+				print(string.format("[Party] party %d: +%d coins each to %d participants", partyId, perMember, #eligible))
 			end
-			end
-			end
-			end
-			end
+		end
+	end
+	table.clear(matchSnapshot)
+end
+
 local accumulator = 0
 RunService.Heartbeat:Connect(function(dt)
 	accumulator += dt
