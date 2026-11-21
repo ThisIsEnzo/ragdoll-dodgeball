@@ -61,7 +61,7 @@ if Ranks then
  test("emote keys unique",function() local seen={}; for _,e in ipairs(Ranks.Emotes) do assertTrue(not seen[e.key],"duplicate emote "..e.key); seen[e.key]=true end end)
 end
 if Store then
- test("coin packs improve value by tier",function() local prev=0; for _,p in ipairs(Store.Products) do if p.coins then local value=p.coins/p.fallbackPrice; assertTrue(value>=prev,"coin pack value drops"); prev=value end end)
+ test("coin packs improve value by tier",function() local prev=0; for _,p in ipairs(Store.Products) do if p.coins then local value=p.coins/p.fallbackPrice; assertTrue(value>=prev,"coin pack value drops"); prev=value end end end)
  test("gamepasses define effects",function() for _,p in ipairs(Store.GamePasses) do assertTrue(Store.Effects[p.key],"pass missing effect "..p.key) end end)
  test("gamepasses are noncombat",function() for key,e in pairs(Store.Effects) do assertTrue(e.damage==nil and e.aim==nil and e.hitbox==nil,"combat advantage in pass "..key) end end)
 end
