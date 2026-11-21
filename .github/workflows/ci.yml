@@ -145,13 +145,14 @@ jobs:
       - name: Download StyLua
         run: |
           set -euo pipefail
-          URL=$(curl -sSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
-            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'linux' in x['name'].lower() and 'zip' in x['name'].lower()))")
-          curl -sSL "$URL" -o stylua.zip
+          curl --fail --silent --show-error --location https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest -o stylua-release.json
+          URL=$(python3 -c 'import json; d=json.load(open("stylua-release.json")); print(next(a["browser_download_url"] for a in d["assets"] if "linux" in a["name"].lower() and a["name"].endswith(".zip")))')
+          curl --fail --silent --show-error --location "$URL" -o stylua.zip
           mkdir -p stylua-bin
           unzip -o -q stylua.zip -d stylua-bin
-          BIN=$(find stylua-bin -type f -name 'stylua*' | head -1)
+          BIN=$(find stylua-bin -type f -name stylua -print -quit)
+          test -n "$BIN"
           chmod +x "$BIN"
           echo "STYLUA_BIN=$BIN" >> "$GITHUB_ENV"
       - name: Check formatting
-        run: "$STYLUA_BIN" --check src || echo "::warning::Formatting differs from StyLua style"
+        run: '"$STYLUA_BIN" --check src || echo "::warning::Formatting differs from StyLua style"'
