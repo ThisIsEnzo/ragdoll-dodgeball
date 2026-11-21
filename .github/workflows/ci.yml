@@ -31,20 +31,7 @@ jobs:
       - name: Download Luau toolchain
         run: |
           set -euo pipefail
-          API=https://api.github.com/repos/luau-lang/luau/releases/latest
-          curl --fail --silent --show-error --location "$API" -o luau-release.json
-          URL=$(python3 - <<'PY'
-          import json
-          with open("luau-release.json", encoding="utf-8") as f:
-              assets = json.load(f).get("assets", [])
-          matches = [a["browser_download_url"] for a in assets
-                     if "ubuntu" in a.get("name", "").lower()
-                     and a.get("name", "").lower().endswith(".zip")]
-          if not matches:
-              raise SystemExit("No Ubuntu ZIP asset found in latest Luau release")
-          print(matches[0])
-          PY
-          )
+          URL=https://github.com/luau-lang/luau/releases/download/0.748/luau-ubuntu.zip
           echo "Downloading $URL"
           curl --fail --silent --show-error --location "$URL" -o luau.zip
           mkdir -p luau-bin
@@ -117,8 +104,8 @@ jobs:
       - name: Download Rojo
         run: |
           set -euo pipefail
-          URL=$(curl -sSL https://api.github.com/repos/rojo-rbx/rojo/releases/latest \
-            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'linux' in x['name'].lower() and x['name'].endswith('.zip')))")
+          curl --fail --silent --show-error --location https://api.github.com/repos/rojo-rbx/rojo/releases/latest -o rojo-release.json
+          URL=$(python3 -c 'import json; d=json.load(open("rojo-release.json")); print(next(a["browser_download_url"] for a in d["assets"] if "linux-x86_64" in a["name"].lower() and a["name"].endswith(".zip")))' )
           echo "fetching $URL"
           curl -sSL "$URL" -o rojo.zip
           mkdir -p rojo-bin
