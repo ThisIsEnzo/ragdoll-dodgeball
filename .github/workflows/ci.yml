@@ -31,38 +31,74 @@ jobs:
       - name: Download Luau toolchain
         run: |
           set -euo pipefail
-          URL=$(curl -sSL https://api.github.com/repos/luau-lang/luau/releases/latest \
-            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'ubuntu' in x['name'].lower()))")
-          echo "fetching $URL"
-          curl -sSL "$URL" -o luau.zip
+          URL=https://github.com/luau-lang/luau/releases/download/0.748/luau-ubuntu.zip
+          echo "Downloading $URL"
+          curl --fail --silent --show-error --location "$URL" -o luau.zip
           mkdir -p luau-bin
           unzip -o -q luau.zip -d luau-bin
-          find luau-bin -maxdepth 2 -type f -printf '%p\\n'
+          find luau-bin -type f -maxdepth 3 -print
+          RUNNER=$(find luau-bin -type f -name luau -print -quit)
+          ANALYZER=$(find luau-bin -type f -name 'luau-analyze*' -print -quit)
+          COMPILER=$(find luau-bin -type f -name 'luau-compile*' -print -quit)
+          if [ -z "$RUNNER" ] || [ -z "$COMPILER" ]; then
+            echo "::error::Luau runner/compiler missing from release archive"
+            exit 1
+          fi
+          chmod +x "$RUNNER" "$COMPILER"
+          [ -z "$ANALYZER" ] || chmod +x "$ANALYZER"
+          {
+            echo "LUAU_RUN=$RUNNER"
+            echo "LUAU_COMPILE=$COMPILER"
+            echo "LUAU_ANALYZE=$ANALYZER"
+          } >> "$GITHUB_ENV"
 
-      - name: Analyse every Luau file
+      - name: Compile every Luau file
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(find src tools -type f -name '*.lua' | sort)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::No Luau files found under src/ or tools/"
+            exit 1
+          fi
+          mkdir -p compile-output
+          for file in "${FILES[@]}"; do
+            name=$(echo "$file" | tr '/.' '__')
+            "$LUAU_COMPILE" "$file" > "compile-output/$name.txt"
+          done
+          echo "Successfully compiled ${#FILES[@]} Luau files."
+
+      - name: Analyse Luau files (advisory)
+        if: always()
+        continue-on-error: true
         run: |
           set -uo pipefail
-          BIN=$(find luau-bin -type f -name 'luau-analyze*' | head -1)
-          if [ -z "$BIN" ]; then
-            echo "::error::luau-analyze binary not found in release archive"
-            exit 1
+          if [ -z "${LUAU_ANALYZE:-}" ] || [ ! -x "$LUAU_ANALYZE" ]; then
+            echo "Luau analyzer unavailable; compile step remains the syntax gate."
+            exit 0
           fi
-          chmod +x "$BIN"
-          mapfile -t FILES < <(find src tools -name '*.lua' | sort)
-          echo "analysing ${#FILES[@]} files"
-          "$BIN" "${FILES[@]}" > analyze.txt 2>&1 || true
+          mapfile -t FILES < <(find src tools -type f -name '*.lua' | sort)
+          "$LUAU_ANALYZE" "${FILES[@]}" > analyze.txt 2>&1 || true
           cat analyze.txt
-          if grep -qE 'SyntaxError|Expected .*got|Unexpected token|Ambiguous syntax' analyze.txt; then
-            echo "::error::Luau syntax errors detected"
-            exit 1
-          fi
-          echo "No syntax errors."
+
+      - name: Build self-contained balance test runner
+        run: |
+          set -euo pipefail
+          python3 tools/tests/build_runner.py --output build/balance-tests.lua
+          "$LUAU_COMPILE" build/balance-tests.lua > /dev/null
+
+      - name: Run balance invariant tests
+        run: |
+          set -euo pipefail
+          "$LUAU_RUN" build/balance-tests.lua | tee tests.txt
+          grep -q "TESTS_FAILED=0" tests.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: luau-analysis
-          path: analyze.txt
+          path: |
+            analyze.txt
+            tests.txt
           if-no-files-found: ignore
 
   rojo-build:
@@ -74,15 +110,21 @@ jobs:
       - name: Download Rojo
         run: |
           set -euo pipefail
-          URL=$(curl -sSL https://api.github.com/repos/rojo-rbx/rojo/releases/latest \
-            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'linux' in x['name'].lower() and x['name'].endswith('.zip')))")
-          echo "fetching $URL"
-          curl -sSL "$URL" -o rojo.zip
+          VERSION=7.7.1
+          URL="https://github.com/rojo-rbx/rojo/releases/download/v${VERSION}/rojo-${VERSION}-linux-x86_64.zip"
+          echo "Downloading pinned Rojo ${VERSION}: ${URL}"
+          curl --fail --silent --show-error --location "${URL}" -o rojo.zip
           mkdir -p rojo-bin
           unzip -o -q rojo.zip -d rojo-bin
-          BIN=$(find rojo-bin -type f -name 'rojo*' | head -1)
-          chmod +x "$BIN"
-          echo "ROJO_BIN=$BIN" >> "$GITHUB_ENV"
+          BIN=$(find rojo-bin -type f -name rojo -print -quit)
+          if [ -z "${BIN}" ]; then
+            echo "::error::Rojo binary missing from release archive"
+            find rojo-bin -maxdepth 3 -type f -print
+            exit 1
+          fi
+          chmod +x "${BIN}"
+          "${BIN}" --version
+          echo "ROJO_BIN=${BIN}" >> "${GITHUB_ENV}"
 
       - name: Build place file
         run: |
@@ -104,13 +146,14 @@ jobs:
       - name: Download StyLua
         run: |
           set -euo pipefail
-          URL=$(curl -sSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
-            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'linux' in x['name'].lower() and 'zip' in x['name'].lower()))")
-          curl -sSL "$URL" -o stylua.zip
+          curl --fail --silent --show-error --location https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest -o stylua-release.json
+          URL=$(python3 -c 'import json; d=json.load(open("stylua-release.json")); print(next(a["browser_download_url"] for a in d["assets"] if "linux" in a["name"].lower() and a["name"].endswith(".zip")))')
+          curl --fail --silent --show-error --location "$URL" -o stylua.zip
           mkdir -p stylua-bin
           unzip -o -q stylua.zip -d stylua-bin
-          BIN=$(find stylua-bin -type f -name 'stylua*' | head -1)
+          BIN=$(find stylua-bin -type f -name stylua -print -quit)
+          test -n "$BIN"
           chmod +x "$BIN"
           echo "STYLUA_BIN=$BIN" >> "$GITHUB_ENV"
       - name: Check formatting
-        run: "$STYLUA_BIN" --check src || echo "::warning::Formatting differs from StyLua style"
+        run: '"$STYLUA_BIN" --check src || echo "::warning::Formatting differs from StyLua style"'
