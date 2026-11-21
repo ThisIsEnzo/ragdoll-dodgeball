@@ -26,7 +26,7 @@ luau tools/tests/run.lua
 ```
 
 The suite prints `TESTS_FAILED=N` and exits non-zero if any assertion fails.
-Roblox Studio playtesting is still required for physics, input, UI and networking.
+The builder embeds the exact current `src/shared` module sources into one generated Luau file. Each module is compiled with a fresh environment that inherits the test runner's Roblox API shims. This avoids relying on filesystem access from Luau CLI or globals leaking across isolated `require` environments.\n\nRoblox Studio playtesting is still required for physics, input, UI and networking.
 
 
 ## Known configuration warning
