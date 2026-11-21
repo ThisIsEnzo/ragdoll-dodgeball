@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  roblox-rules:
+    name: Roblox invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check project-specific rules
+        run: python tools/ci/roblox_rules.py --github
+
+  luau-syntax:
+    name: Luau syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Luau toolchain
+        run: |
+          set -euo pipefail
+          URL=$(curl -sSL https://api.github.com/repos/luau-lang/luau/releases/latest \
+            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'ubuntu' in x['name'].lower()))")
+          echo "fetching $URL"
+          curl -sSL "$URL" -o luau.zip
+          mkdir -p luau-bin
+          unzip -o -q luau.zip -d luau-bin
+          find luau-bin -maxdepth 2 -type f -printf '%p\\n'
+
+      - name: Analyse every Luau file
+        run: |
+          set -uo pipefail
+          BIN=$(find luau-bin -type f -name 'luau-analyze*' | head -1)
+          if [ -z "$BIN" ]; then
+            echo "::error::luau-analyze binary not found in release archive"
+            exit 1
+          fi
+          chmod +x "$BIN"
+          mapfile -t FILES < <(find src tools -name '*.lua' | sort)
+          echo "analysing ${#FILES[@]} files"
+          "$BIN" "${FILES[@]}" > analyze.txt 2>&1 || true
+          cat analyze.txt
+          if grep -qE 'SyntaxError|Expected .*got|Unexpected token|Ambiguous syntax' analyze.txt; then
+            echo "::error::Luau syntax errors detected"
+            exit 1
+          fi
+          echo "No syntax errors."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: luau-analysis
+          path: analyze.txt
+          if-no-files-found: ignore
+
+  rojo-build:
+    name: Rojo build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Rojo
+        run: |
+          set -euo pipefail
+          URL=$(curl -sSL https://api.github.com/repos/rojo-rbx/rojo/releases/latest \
+            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'linux' in x['name'].lower() and x['name'].endswith('.zip')))")
+          echo "fetching $URL"
+          curl -sSL "$URL" -o rojo.zip
+          mkdir -p rojo-bin
+          unzip -o -q rojo.zip -d rojo-bin
+          BIN=$(find rojo-bin -type f -name 'rojo*' | head -1)
+          chmod +x "$BIN"
+          echo "ROJO_BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: Build place file
+        run: |
+          set -euo pipefail
+          "$ROJO_BIN" build default.project.json -o build.rbxlx
+          ls -lh build.rbxlx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: place-file
+          path: build.rbxlx
+
+  format:
+    name: StyLua (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download StyLua
+        run: |
+          set -euo pipefail
+          URL=$(curl -sSL https://api.github.com/repos/JohnnyMorganz/StyLua/releases/latest \
+            | python3 -c "import sys,json;a=json.load(sys.stdin)['assets'];print(next(x['browser_download_url'] for x in a if 'linux' in x['name'].lower() and 'zip' in x['name'].lower()))")
+          curl -sSL "$URL" -o stylua.zip
+          mkdir -p stylua-bin
+          unzip -o -q stylua.zip -d stylua-bin
+          BIN=$(find stylua-bin -type f -name 'stylua*' | head -1)
+          chmod +x "$BIN"
+          echo "STYLUA_BIN=$BIN" >> "$GITHUB_ENV"
+      - name: Check formatting
+        run: "$STYLUA_BIN" --check src || echo "::warning::Formatting differs from StyLua style"
