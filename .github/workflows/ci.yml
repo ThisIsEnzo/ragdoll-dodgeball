@@ -71,7 +71,9 @@ jobs:
         if: always()
         with:
           name: luau-analysis
-          path: analyze.txt
+          path: |
+            analyze.txt
+            tests.txt
           if-no-files-found: ignore
 
   rojo-build:
