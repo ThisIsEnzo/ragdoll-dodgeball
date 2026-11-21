@@ -14,7 +14,7 @@ jobs:
   diagnostics:
     name: Runner and workflow trigger diagnostic
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - name: Confirm workflow execution
         run: |
@@ -28,3 +28,12 @@ jobs:
         run: |
           test -f default.project.json
           echo "CHECKOUT_OK=true"
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          VERSION=$(curl --fail --silent --show-error --location https://api.github.com/repos/rhysd/actionlint/releases/latest | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])")
+          curl --fail --silent --show-error --location "https://github.com/rhysd/actionlint/releases/download/${VERSION}/actionlint_${VERSION#v}_linux_amd64.tar.gz" -o actionlint.tar.gz
+          tar -xzf actionlint.tar.gz actionlint
+          chmod +x actionlint
+      - name: Lint main CI workflow
+        run: ./actionlint -color .github/workflows/ci.yml
