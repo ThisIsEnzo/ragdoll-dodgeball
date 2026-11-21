@@ -18,6 +18,7 @@ local STORE = DataStoreService:GetDataStore("RagdollDodgeball_Style_v1")
 local records = {}
 local loading = {}
 local warnedStore = false
+local busy = {}
 
 local folder = ReplicatedStorage:FindFirstChild("StyleRemotes")
 if not folder then
@@ -66,10 +67,11 @@ local function validOwned(source)
 end
 
 local function loadRecord(player)
-	local record = { owned = {}, trail = "none", effect = "default", title = "none" }
+	local record = { owned = {}, trail = "none", effect = "default", title = "none", storageReady = false }
 	local ok, stored = pcall(function()
 		return STORE:GetAsync("style_" .. player.UserId)
 	end)
+	record.storageReady = ok
 	if not ok then
 		warnStore("DataStore unavailable; cosmetics are session-only for this server.")
 	elseif typeof(stored) == "table" then
@@ -84,13 +86,14 @@ local function loadRecord(player)
 			record.title = stored.title
 		end
 	end
+	if player.Parent ~= Players then return nil end
 	records[player.UserId] = record
 	return record
 end
 
 local function saveRecord(player)
 	local record = records[player.UserId]
-	if not record then return false end
+	if not record or not record.storageReady then return false end
 	local payload = {
 		owned = table.clone(record.owned),
 		trail = record.trail,
@@ -198,9 +201,11 @@ end
 buyRemote.OnServerEvent:Connect(function(player, kind, key)
 	if not validRequest(player, kind, key) then return end
 	if kind == "title" then return end -- titles are earned, never purchasable
-	local record = records[player.UserId]
+	local userId = player.UserId
+	if busy[userId] then return end
+	local record = records[userId]
 	local data = DataService.Get(player)
-	if not record or not data then return end
+	if not record or not data or not record.storageReady or not DataService.IsPersistent(player) then return end
 	local map = if kind == "effect" then Catalog.EffectByKey else Catalog.TrailByKey
 	local entry = map[key]
 	if not entry or entry.price <= 0 or (kind ~= "trail" and kind ~= "effect") then return end
@@ -208,32 +213,55 @@ buyRemote.OnServerEvent:Connect(function(player, kind, key)
 		pushState(player)
 		return
 	end
-	if not ProgressionService.SpendCoins(player, entry.price) then
+
+	busy[userId] = true
+	local spent = ProgressionService.SpendCoins(player, entry.price)
+	if not spent then
+		busy[userId] = nil
 		pushState(player)
 		return
 	end
 
+	local previousTrail, previousEffect = record.trail, record.effect
 	record.owned[kind .. ":" .. key] = true
 	if kind == "trail" then record.trail = key else record.effect = key end
-	saveRecord(player)
+	if not saveRecord(player) then
+		record.owned[kind .. ":" .. key] = nil
+		record.trail, record.effect = previousTrail, previousEffect
+		ProgressionService.GrantCoins(player, entry.price)
+	end
+	busy[userId] = nil
 	pushState(player)
 end)
 
 equipRemote.OnServerEvent:Connect(function(player, kind, key)
 	if not validRequest(player, kind, key) then return end
-	local record = records[player.UserId]
-	if not record then return end
-	if kind == "trail" or kind == "effect" then
+	local userId = player.UserId
+	local record = records[userId]
+	if not record or busy[userId] then return end
+
+	local nextTrail, nextEffect, nextTitle = record.trail, record.effect, record.title
+	if kind == "trail" then
 		if not owns(record, kind, key) then return end
-		if kind == "trail" then record.trail = key else record.effect = key end
+		nextTrail = key
+	elseif kind == "effect" then
+		if not owns(record, kind, key) then return end
+		nextEffect = key
 	elseif kind == "title" then
 		local entry = Catalog.TitleByKey[key]
 		if not entry or not getTitleUnlocked(player, entry) then return end
-		record.title = key
+		nextTitle = key
 	else
 		return
 	end
-	saveRecord(player)
+
+	busy[userId] = true
+	local previousTrail, previousEffect, previousTitle = record.trail, record.effect, record.title
+	record.trail, record.effect, record.title = nextTrail, nextEffect, nextTitle
+	if record.storageReady and not saveRecord(player) then
+		record.trail, record.effect, record.title = previousTrail, previousEffect, previousTitle
+	end
+	busy[userId] = nil
 	pushState(player)
 end)
 
@@ -249,6 +277,7 @@ Players.PlayerRemoving:Connect(function(player)
 	saveRecord(player)
 	records[player.UserId] = nil
 	loading[player.UserId] = nil
+	busy[player.UserId] = nil
 end)
 
 game:BindToClose(function()
