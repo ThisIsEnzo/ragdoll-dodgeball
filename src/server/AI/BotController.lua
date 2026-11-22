@@ -123,15 +123,6 @@ local function separation(bot, root)
 	return push
 end
 
-local function lineOfSight(from, to, exclude, target)
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = exclude
-	params.IgnoreWater = true
-	local hit = workspace:Raycast(from, to - from, params)
-	if hit == nil then return true end
-	return hit.Instance:IsDescendantOf(target)
-end
 
 local function ballistic(origin, target, speed)
 	local offset = target - origin
@@ -144,24 +135,79 @@ local function ballistic(origin, target, speed)
 	return (flat.Unit * math.cos(angle) + Vector3.new(0, math.sin(angle), 0)).Unit
 end
 
-local function nearestEnemy(character)
+local function livingEnemies(character)
 	local team = character:GetAttribute("Team")
 	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then return nil end
-	local best, bestDist = nil, math.huge
+	local list = {}
+	if not root or (team ~= 1 and team ~= 2) then return list end
+
 	for _, model in ipairs(CollectionService:GetTagged("DodgeballActor")) do
 		if model:IsA("Model") and model ~= character and model:GetAttribute("Team") ~= team then
-			if not model:GetAttribute("Benched") and not model:GetAttribute("Ragdolled") then
+			local enemyTeam = model:GetAttribute("Team")
+			if (enemyTeam == 1 or enemyTeam == 2)
+				and not model:GetAttribute("Benched") and not model:GetAttribute("Ragdolled") then
 				local humanoid = model:FindFirstChildOfClass("Humanoid")
 				local enemyRoot = model:FindFirstChild("HumanoidRootPart")
 				if humanoid and humanoid.Health > 0 and enemyRoot then
-					local d = (enemyRoot.Position - root.Position).Magnitude
-					if d < bestDist then best, bestDist = model, d end
+					table.insert(list, {
+						model = model,
+						root = enemyRoot,
+						distance = (enemyRoot.Position - root.Position).Magnitude,
+					})
 				end
 			end
 		end
 	end
-	return best
+
+	table.sort(list, function(a, b) return a.distance < b.distance end)
+	return list
+end
+
+-- Ignore teammates, but keep opponents and arena geometry in the raycast.
+-- A ray that reaches a different valid opponent retargets to that opponent.
+local function resolveTarget(bot, origin, enemies)
+	local ballsFolder = workspace:FindFirstChild("Balls")
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.IgnoreWater = true
+
+	local team = bot:GetAttribute("Team")
+	local ignore = { bot }
+	if ballsFolder then table.insert(ignore, ballsFolder) end
+	for _, actor in ipairs(CollectionService:GetTagged("DodgeballActor")) do
+		if actor:IsA("Model") and actor:GetAttribute("Team") == team then
+			table.insert(ignore, actor)
+		end
+	end
+	params.FilterDescendantsInstances = ignore
+
+	local byModel = {}
+	for _, entry in ipairs(enemies) do
+		byModel[entry.model] = entry
+	end
+
+	for index, entry in ipairs(enemies) do
+		if index > CFG.BotAI.TargetScan then break end
+
+		local velocity = entry.root.AssemblyLinearVelocity
+		local flatVelocity = Vector3.new(velocity.X, 0, velocity.Z)
+		local flightTime = entry.distance / math.max(CFG.Throw.SpeedMax, 1)
+		local aim = entry.root.Position + Vector3.new(0, 1, 0)
+			+ flatVelocity * flightTime * CFG.BotAI.LeadFactor
+
+		local hit = workspace:Raycast(origin, aim - origin, params)
+		if hit == nil then
+			return entry, aim
+		end
+
+		local struckModel = hit.Instance:FindFirstAncestorOfClass("Model")
+		local struckEntry = struckModel and byModel[struckModel]
+		if struckEntry then
+			return struckEntry, struckEntry.root.Position + Vector3.new(0, 1, 0)
+		end
+	end
+
+	return nil, nil
 end
 
 local function pickName()
@@ -213,7 +259,11 @@ local function think(bot)
 	local anchor = Vector3.new(info.laneX, root.Position.Y, sign * CFG.Arena.Depth * 0.5 * CFG.BotAI.AnchorDepth)
 	local throwLine = Vector3.new(info.laneX, root.Position.Y, sign * (CFG.BotAI.CenterMargin + CFG.BotAI.ThrowLineOffset))
 	local aimError = CFG.Bots.AimErrorMin + math.random() * (CFG.Bots.AimErrorMax - CFG.Bots.AimErrorMin)
-	local lastThrowAt = 0
+	local lastThrowAt = -100
+	local heldSince = 0
+	local wasHolding = false
+	local nextRepositionAt = 0
+	local strafeSign = 1
 	local nextCatchTry = 0
 	local wander = Vector3.zero
 	local nextWander = 0
@@ -231,36 +281,50 @@ local function think(bot)
 		local held = BallService.GetHeld(bot)
 
 		if held then
-			-- Carrying: step up and throw. Nothing else competes with this.
-			humanoid:MoveTo(clampToHalf(throwLine + separation(bot, root), team))
+			if not wasHolding then
+				heldSince = now
+				wasHolding = true
+				strafeSign = if math.random() < 0.5 then -1 else 1
+			end
 
-			if now - lastThrowAt >= CFG.BotAI.ThrowInterval then
-				local enemy = nearestEnemy(bot)
-				local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
-				if enemyRoot then
-					local origin = root.Position + Vector3.new(0, CFG.Throw.SpawnLift, 0)
-					local target = enemyRoot.Position + Vector3.new(0, 1, 0)
-					local ballsFolder = workspace:FindFirstChild("Balls")
-					local exclude = { bot }
-					if ballsFolder then table.insert(exclude, ballsFolder) end
+			local heldFor = now - heldSince
+			local origin = root.Position + Vector3.new(0, CFG.Throw.SpawnLift, 0)
+			local enemies = livingEnemies(bot)
+			local target, aim = resolveTarget(bot, origin, enemies)
 
-					if lineOfSight(origin, target, exclude, enemy) then
-						local charge = 0.55 + math.random() * 0.35
-						local t = math.clamp((charge - CFG.Throw.ChargeMin) / (CFG.Throw.ChargeMax - CFG.Throw.ChargeMin), 0, 1)
-						local speed = CFG.Throw.SpeedMin + (CFG.Throw.SpeedMax - CFG.Throw.SpeedMin) * t
-						local dir = ballistic(origin, target, speed)
-						local jitter = Vector3.new(math.random() - 0.5, (math.random() - 0.5) * 0.4, math.random() - 0.5) * math.rad(aimError)
-						if BallService.Throw(bot, held, (dir + jitter).Unit, charge) then
-							lastThrowAt = now
-						end
-					else
-						-- No line: sidestep within the lane instead of standing still.
-						local side = Vector3.new(math.random(-8, 8), 0, 0)
-						humanoid:MoveTo(clampToHalf(throwLine + side, team))
-					end
+			local gapReady = (now - lastThrowAt) >= CFG.BotAI.ThrowInterval
+			local cooldownReady = (now - lastThrowAt) >= CFG.BotAI.ThrowCooldown
+			local maxHoldReached = heldFor >= CFG.BotAI.MaxHold
+
+			if target and aim and cooldownReady and (gapReady or maxHoldReached) then
+				local charge = 0.55 + math.random() * 0.35
+				local t = math.clamp((charge - CFG.Throw.ChargeMin) / (CFG.Throw.ChargeMax - CFG.Throw.ChargeMin), 0, 1)
+				local speed = CFG.Throw.SpeedMin + (CFG.Throw.SpeedMax - CFG.Throw.SpeedMin) * t
+				local dir = ballistic(origin, aim, speed)
+				local jitter = Vector3.new(math.random() - 0.5, (math.random() - 0.5) * 0.4, math.random() - 0.5) * math.rad(aimError)
+				if BallService.Throw(bot, held, (dir + jitter).Unit, charge) then
+					lastThrowAt = now
+					wasHolding = false
 				end
+			elseif not target and now >= nextRepositionAt then
+				-- Never throw blindly through arena geometry. Reposition and
+				-- retry target selection on the next AI tick.
+				local step = CFG.BotAI.RepositionStep
+				if maxHoldReached then step *= 1.5 end
+				local desired = throwLine + Vector3.new(strafeSign * step, 0, 0) + separation(bot, root)
+				local clamped = clampToHalf(desired, team)
+				if math.abs(clamped.X - desired.X) > 1 then
+					strafeSign = -strafeSign
+					desired = throwLine + Vector3.new(strafeSign * step, 0, 0) + separation(bot, root)
+					clamped = clampToHalf(desired, team)
+				else
+					strafeSign = -strafeSign
+				end
+				humanoid:MoveTo(clamped)
+				nextRepositionAt = now + 0.8
 			end
 		else
+			wasHolding = false
 			-- Empty handed: catching is an overlay, never a replacement for play.
 			if now > nextCatchTry then
 				local threat, threatDist = BallService.IncomingThreat(root, CFG.BotAI.CatchRange)
