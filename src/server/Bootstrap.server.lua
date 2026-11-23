@@ -148,6 +148,7 @@ Net.On("ThrowRequest", function(player, charge, aimDir, clientOrigin)
 
 	if BallService.Throw(character, ball, finalDir, charge, cannonMul * suddenMul, origin) then
 		throwCooldown[player.UserId] = now + CFG.Throw.Cooldown
+		ball:SetAttribute("IsSlam", uncatchable)
 		if uncatchable then ball:SetAttribute("Uncatchable", true) end
 		ProgressionService.RegisterStat(player, "throws", 1)
 		FtueService.Threw(player)
