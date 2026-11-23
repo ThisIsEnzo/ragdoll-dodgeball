@@ -18,6 +18,7 @@ MODULES = (
     "ShopCatalog",
     "MonetizationCatalog",
     "AudioCatalog",
+    "ContactForce",
 )
 
 

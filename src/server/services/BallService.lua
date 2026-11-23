@@ -339,7 +339,23 @@ local function sweepHit(ball, from, to, speed)
 	local record = lastThrow[ball]
 	if record and record.actor == character and os.clock() - record.at < 0.25 then return end
 
-	BallService.HitDetected:Fire(ball, character, speed, result.Position)
+	-- Capture contact kinematics before HitDetected listeners can alter the ball
+	-- or victim state. Spherecast normal points out of the struck surface.
+	local ballVelocity = ball.AssemblyLinearVelocity
+	local hitPart = result.Instance
+	local victimVelocity = if hitPart:IsA("BasePart") then hitPart.AssemblyLinearVelocity else Vector3.zero
+	local relativeVelocity = ballVelocity - victimVelocity
+	local contactNormal = result.Normal
+	local contact = {
+		position = result.Position,
+		normal = contactNormal,
+		ballVelocity = ballVelocity,
+		victimVelocity = victimVelocity,
+		relativeVelocity = relativeVelocity,
+		closingSpeed = math.max(0, relativeVelocity:Dot(-contactNormal)),
+	}
+
+	BallService.HitDetected:Fire(ball, character, speed, result.Position, contact)
 	ball:SetAttribute("Clean", false)
 end
 
