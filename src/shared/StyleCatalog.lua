@@ -43,6 +43,29 @@ local Titles = {
 	{ key = "lifesaver", name = "LIFESAVER", level = 1, stat = "revives", amount = 60, color = Color3.fromRGB(0,226,255) },
 }
 
+-- Build a valid ColorSequence for every catalog entry, including a single colour.
+-- Roblox requires at least two keypoints when constructing from a keypoint array.
+local function colorSequence(colors)
+	local count = if typeof(colors) == "table" then #colors else 0
+	if count == 0 then
+		colors = { Color3.new(1, 1, 1) }
+		count = 1
+	end
+
+	local points = {}
+	if count == 1 then
+		local color = colors[1]
+		table.insert(points, ColorSequenceKeypoint.new(0, color))
+		table.insert(points, ColorSequenceKeypoint.new(1, color))
+	else
+		for index, color in ipairs(colors) do
+			local time = (index - 1) / (count - 1)
+			table.insert(points, ColorSequenceKeypoint.new(time, color))
+		end
+	end
+	return ColorSequence.new(points)
+end
+
 local function index(list)
 	local result = {}
 	for _, entry in ipairs(list) do
@@ -60,4 +83,5 @@ return {
 	TitleByKey = index(Titles),
 	Tabs = { "TRAILS", "EFFECTS", "TITLES" },
 	TrailLifetime = 2.6,
+	ColorSequence = colorSequence,
 }

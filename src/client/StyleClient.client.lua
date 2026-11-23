@@ -156,12 +156,7 @@ local function gradientPreview(parent, colors)
 		BorderSizePixel = 0,
 	}, parent)
 	round(bar, 6)
-	local keypoints = {}
-	for index, color in ipairs(colors) do
-		local t = if #colors > 1 then (index - 1) / (#colors - 1) else 0
-		table.insert(keypoints, ColorSequenceKeypoint.new(t, color))
-	end
-	make("UIGradient", { Color = ColorSequence.new(keypoints) }, bar)
+	make("UIGradient", { Color = Catalog.ColorSequence(colors) }, bar)
 	return bar
 end
 
@@ -357,12 +352,7 @@ local function playerFrom(value)
 end
 
 local function colorSequence(colors)
-	local points = {}
-	for index, color in ipairs(colors) do
-		local t = if #colors > 1 then (index - 1) / (#colors - 1) else 0
-		table.insert(points, ColorSequenceKeypoint.new(t, color))
-	end
-	return ColorSequence.new(points)
+	return Catalog.ColorSequence(colors)
 end
 
 local function attachTrail(ball, owner)
