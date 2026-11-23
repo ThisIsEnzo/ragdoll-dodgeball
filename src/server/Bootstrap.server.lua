@@ -16,6 +16,7 @@ local Net = require(Shared:WaitForChild("Net", 20))
 local Resolve = require(Shared:WaitForChild("Resolve", 20))
 local Collision = require(Shared:WaitForChild("Collision", 20))
 local AimAssist = require(Shared:WaitForChild("AimAssist", 20))
+local ContactForce = require(Shared:WaitForChild("ContactForce", 20))
 
 Collision.Setup()
 
@@ -233,7 +234,7 @@ Net.On("PingRequest", function(player, position)
 	Net.FireAll("FXEvent", "ping", position, player.UserId)
 end)
 
-BallService.HitDetected.Event:Connect(function(ball, character, speed)
+BallService.HitDetected.Event:Connect(function(ball, character, speed, _impactPosition, contact)
 	if character:GetAttribute("Benched") or RagdollService.IsActive(character) then return end
 
 	local thrower = BallService.LastThrower(ball)
@@ -262,7 +263,20 @@ BallService.HitDetected.Event:Connect(function(ball, character, speed)
 		ProgressionService.RegisterStat(throwerPlayer, "kos", 1)
 		FtueService.KnockedOut(throwerPlayer)
 		ball.AssemblyLinearVelocity *= CFG.Impact.HitSlowdown
-		Net.FireAll("FXEvent", "ko", character, thrower, speed)
+
+		-- Contact-derived value drives the existing impact presentation only.
+		-- RagdollService remains the sole owner of the knockout impulse.
+		local feedbackSpeed = speed
+		if typeof(contact) == "table" then
+			local force = ContactForce.Calculate(
+				contact.closingSpeed,
+				CFG.Throw.SpeedMax,
+				0,
+				1
+			)
+			feedbackSpeed = force.normalized * CFG.Throw.SpeedMax
+		end
+		Net.FireAll("FXEvent", "ko", character, thrower, feedbackSpeed)
 	end
 end)
 
