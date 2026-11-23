@@ -93,10 +93,6 @@ if Audio and CFG then
  test("audio defaults stay normalized",function() for name,v in pairs(Audio.Defaults) do assertTrue(v>=0 and v<=1,"volume out of range "..name) end end)
  test("gameplay audio references exist",function() for _,key in ipairs({"throw","bonk","catch","whiff","dodge","revive","ult","shield","levelUp","click"}) do assertTrue(Audio.Sounds[key],"missing sound key "..key) end end)
 end
-print(string.format("\npassed %d, failed %d",passed,failed))
-print("TESTS_FAILED="..failed)
-if failed==0 then print("All balance invariants hold.") else error(string.format("%d invariant test(s) failed",failed)) end
-
 local ContactForce=load("ContactForce")
 if ContactForce then
  test("contact force maps reference speed to full scale",function()
@@ -133,3 +129,8 @@ if ContactForce then
   assertTrue(low.normalized==0.2,"custom minimum clamp ignored")
  end)
 end
+
+
+print(string.format("\npassed %d, failed %d",passed,failed))
+print("TESTS_FAILED="..failed)
+if failed==0 then print("All balance invariants hold.") else error(string.format("%d invariant test(s) failed",failed)) end
