@@ -174,6 +174,8 @@ local function resolveTarget(bot, origin, enemies)
 	local team = bot:GetAttribute("Team")
 	local ignore = { bot }
 	if ballsFolder then table.insert(ignore, ballsFolder) end
+	local centreBarrier = workspace:FindFirstChild("CentreBarrier")
+	if centreBarrier then table.insert(ignore, centreBarrier) end
 	for _, actor in ipairs(CollectionService:GetTagged("DodgeballActor")) do
 		if actor:IsA("Model") and actor:GetAttribute("Team") == team then
 			table.insert(ignore, actor)
