@@ -10,6 +10,7 @@ local RoundService = {}
 
 RoundService.State = "Idle"
 RoundService.Timer = 0
+RoundService.RoundIndex = 0
 RoundService.StateChanged = Instance.new("BindableEvent")
 RoundService.RoundEnded = Instance.new("BindableEvent")
 
@@ -77,12 +78,14 @@ end
 function RoundService.ResetRound()
 	suddenDeath = false
 	wins = { [1] = 0, [2] = 0 }
+	RoundService.RoundIndex = 0
 	table.clear(alive)
 	setState("Idle", 0)
 end
 
 -- Один раунд. onSetup вызывается на старте: спавн мячей, телепорт игроков, раздача команд.
 function RoundService.RunRound(onSetup: (() -> ())?)
+	RoundService.RoundIndex += 1
 	setState("Warmup", CFG.Round.Warmup)
 	if onSetup then
 		onSetup()

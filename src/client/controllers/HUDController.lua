@@ -25,6 +25,65 @@ local levelPopup, levelPopupTitle, levelPopupSub
 local throwBtn, catchBtn, dodgeBtn, ultBtn
 local questRows = {}
 local compact = false
+
+local roundBanner, roundBannerTitle, roundBannerDetail
+local personalBanner, personalBannerTitle, personalBannerDetail
+local bannerSerial = 0
+local previousBenched = nil
+
+local function showBanner(title, detail, color, duration)
+	if not roundBanner then return end
+	bannerSerial += 1
+	local serial = bannerSerial
+	roundBannerTitle.Text = title
+	roundBannerTitle.TextColor3 = color
+	roundBannerDetail.Text = detail
+	roundBanner.Visible = true
+	task.delay(duration, function()
+		if roundBanner and roundBanner.Parent and bannerSerial == serial then
+			roundBanner.Visible = false
+		end
+	end)
+end
+
+local function showPersonalBanner(title, detail, color, duration)
+	if not personalBanner then return end
+	personalBannerTitle.Text = title
+	personalBannerTitle.TextColor3 = color
+	personalBannerDetail.Text = detail
+	personalBanner.Visible = true
+	task.delay(duration, function()
+		if personalBanner and personalBanner.Parent
+			and personalBannerTitle.Text == title then
+			personalBanner.Visible = false
+		end
+	end)
+end
+
+local function watchLocalCharacter(character)
+	previousBenched = character:GetAttribute("Benched") == true
+	character:GetAttributeChangedSignal("Benched"):Connect(function()
+		local isBenched = character:GetAttribute("Benched") == true
+		if isBenched == previousBenched then return end
+		previousBenched = isBenched
+		if isBenched then
+			showPersonalBanner(
+				" KNOCKED OUT",
+				"WAIT FOR A TEAMMATE TO CATCH YOU",
+				Color3.fromRGB(255, 90, 77),
+				2.8
+			)
+		else
+			showPersonalBanner(
+				" BACK IN PLAY",
+				"YOU ARE BACK ON THE COURT",
+				Color3.fromRGB(124, 255, 79),
+				2.4
+			)
+		end
+	end)
+end
+
 local questsOpen = false
 
 local STATE_KEYS = {
@@ -224,6 +283,81 @@ local function buildQuests()
 	end
 end
 
+
+local function buildMatchFlowBanners()
+	roundBanner = make("Frame", {
+		Size = UDim2.fromOffset(420, 104),
+		Position = UDim2.new(0.5, 0, 0.31, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Color3.fromRGB(10, 16, 34),
+		BackgroundTransparency = 0.12,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, gui)
+	corner(roundBanner, 14)
+	make("UIStroke", {
+		Color = Color3.fromRGB(255, 197, 61),
+		Thickness = 2,
+		Transparency = 0.22,
+	}, roundBanner)
+
+	roundBannerTitle = make("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 52),
+		Position = UDim2.fromOffset(10, 10),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Color3.fromRGB(255, 197, 61),
+		Font = Enum.Font.FredokaOne,
+		TextSize = 30,
+	}, roundBanner)
+
+	roundBannerDetail = make("TextLabel", {
+		Size = UDim2.new(1, -20, 0, 24),
+		Position = UDim2.fromOffset(10, 66),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Color3.fromRGB(234, 240, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+	}, roundBanner)
+
+	personalBanner = make("Frame", {
+		Size = UDim2.fromOffset(310, 66),
+		Position = UDim2.new(0.5, 0, 0.68, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Color3.fromRGB(10, 16, 34),
+		BackgroundTransparency = 0.08,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, gui)
+	corner(personalBanner, 12)
+	make("UIStroke", {
+		Color = Color3.fromRGB(255, 90, 77),
+		Thickness = 2,
+		Transparency = 0.2,
+	}, personalBanner)
+
+	personalBannerTitle = make("TextLabel", {
+		Size = UDim2.new(1, -16, 0, 27),
+		Position = UDim2.fromOffset(8, 7),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Color3.fromRGB(255, 90, 77),
+		Font = Enum.Font.FredokaOne,
+		TextSize = 19,
+	}, personalBanner)
+
+	personalBannerDetail = make("TextLabel", {
+		Size = UDim2.new(1, -16, 0, 18),
+		Position = UDim2.fromOffset(8, 36),
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = Color3.fromRGB(234, 240, 255),
+		Font = Enum.Font.GothamBold,
+		TextSize = 10,
+	}, personalBanner)
+end
+
 local function buildLevelPopup()
 	levelPopup = make("Frame", {
 		Size = UDim2.fromOffset(300, 84), Position = UDim2.new(0.5, 0, 0.32, 0),
@@ -337,7 +471,14 @@ function HUDController.Init()
 	buildProfile()
 	buildQuests()
 	buildLevelPopup()
+	buildMatchFlowBanners()
 	layout()
+
+	local localPlayer = Players.LocalPlayer
+	localPlayer.CharacterAdded:Connect(watchLocalCharacter)
+	if localPlayer.Character then
+		watchLocalCharacter(localPlayer.Character)
+	end
 end
 
 function HUDController.Start()
@@ -361,17 +502,38 @@ function HUDController.Start()
 	if matchState then
 		matchState.OnClientEvent:Connect(function(state)
 			if typeof(state) ~= "table" then return end
-			scoreLabel.Text = tostring(state.wins1 or 0) .. " : " .. tostring(state.wins2 or 0)
+			local wins1 = tonumber(state.wins1) or 0
+			local wins2 = tonumber(state.wins2) or 0
+			local roundNumber = math.max(1, math.floor(tonumber(state.round) or 1))
+			local seconds = math.max(0, math.ceil(tonumber(state.timer) or 0))
+			scoreLabel.Text = tostring(wins1) .. " : " .. tostring(wins2)
+
 			if state.state == "MatchEnd" then
+				bannerSerial += 1
+				roundBanner.Visible = false
 				resultFrame.Visible = true
 				local character = Players.LocalPlayer.Character
 				local myTeam = character and character:GetAttribute("Team")
 				resultLabel.Text = if myTeam == state.winner
 					then Strings.Get("hud.victory") else Strings.Get("hud.defeat")
 				stateLabel.Text = Strings.Get("hud.matchEnd")
+			elseif state.state == "Warmup" then
+				resultFrame.Visible = false
+				stateLabel.Text = string.format("ROUND %d  -  GET READY  -  %ds", roundNumber, seconds)
+				showBanner(string.format("ROUND %d", roundNumber), "GET READY", Color3.fromRGB(255, 197, 61), 2.4)
+			elseif state.state == "Live" then
+				resultFrame.Visible = false
+				stateLabel.Text = string.format("ROUND %d  -  LIVE  -  %ds", roundNumber, seconds)
+				showBanner("GO!", string.format("ROUND %d IS LIVE", roundNumber), Color3.fromRGB(124, 255, 79), 1.1)
+			elseif state.state == "RoundEnd" then
+				stateLabel.Text = string.format("ROUND %d  -  ROUND OVER", roundNumber)
+				showBanner("ROUND COMPLETE", string.format("SCORE  %d : %d", wins1, wins2), Color3.fromRGB(255, 197, 61), 3.2)
+			elseif state.state == "SuddenDeath" then
+				stateLabel.Text = string.format("ROUND %d  -  SUDDEN DEATH  -  %ds", roundNumber, seconds)
+				showBanner("SUDDEN DEATH", "ONE LAST CHANCE", Color3.fromRGB(255, 90, 77), 2.0)
 			else
 				local key = STATE_KEYS[state.state] or "hud.waiting"
-				stateLabel.Text = Strings.Get(key) .. "  " .. Strings.Get("hud.seconds", state.timer or 0)
+				stateLabel.Text = Strings.Get(key) .. "  " .. Strings.Get("hud.seconds", seconds)
 			end
 		end)
 	end

@@ -82,6 +82,8 @@ wins1 = RoundService.Wins(1),
 wins2 = RoundService.Wins(2),
 alive1 = RoundService.AliveCount(1),
 alive2 = RoundService.AliveCount(2),
+round = RoundService.RoundIndex,
+winsNeeded = CFG.Round.WinsNeeded,
 inMatch = inMatch,
 })
 end
