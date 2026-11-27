@@ -141,6 +141,8 @@ Net.On("ThrowRequest", function(player, charge, aimDir, clientOrigin)
 	local ballsFolder = workspace:FindFirstChild("Balls")
 	local exclude = { character }
 	if ballsFolder then table.insert(exclude, ballsFolder) end
+	local centreBarrier = workspace:FindFirstChild("CentreBarrier")
+	if centreBarrier then table.insert(exclude, centreBarrier) end
 	local finalDir = AimAssist.Adjust(origin, aimDir, enemyTargets(character), isMobile, exclude)
 
 	local cannonMul, uncatchable = AbilityService.ConsumeCannon(player)
