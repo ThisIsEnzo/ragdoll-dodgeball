@@ -148,6 +148,8 @@ local function draw()
 	local ballsFolder = workspace:FindFirstChild("Balls")
 	local exclude = { character, folder }
 	if ballsFolder then table.insert(exclude, ballsFolder) end
+	local centreBarrier = workspace:FindFirstChild("CentreBarrier")
+	if centreBarrier then table.insert(exclude, centreBarrier) end
 	local isMobile = player:GetAttribute("IsMobile") == true
 	local ok, adjusted = pcall(function()
 		return AimAssist.Adjust(origin, direction, enemyTargets(character), isMobile, exclude)
