@@ -92,13 +92,15 @@ return list[((index - 1) % #list) + 1]
 end
 
 local function benchCharacter(character, team)
+-- Bench placement is a walk sequence owned by BenchBehaviour. Teleporting
+-- here interrupts the KO fall and can put the body inside bench geometry.
+character:SetAttribute("BenchSeated", false)
 character:SetAttribute("Benched", true)
 character:SetAttribute("Ragdolled", false)
 BallService.ForceRelease(character)
 if not table.find(downed[team], character) then
 table.insert(downed[team], character)
 end
-teleport(character, bench[team])
 end
 
 -- Команда берётся у игрока и переносится на любой его новый персонаж
@@ -110,6 +112,7 @@ teamOf[character] = team
 character:SetAttribute("Team", team)
 character:SetAttribute("IsBot", false)
 character:SetAttribute("DisplayName", player.DisplayName)
+character:SetAttribute("BenchSeated", false)
 
 local humanoid = character:FindFirstChildOfClass("Humanoid")
 if humanoid then humanoid.Health = humanoid.MaxHealth end
@@ -190,6 +193,7 @@ local humanoid = character:FindFirstChildOfClass("Humanoid")
 if not humanoid then return false end
 
 RagdollService.Restore(character)
+character:SetAttribute("BenchSeated", false)
 character:SetAttribute("Ragdolled", false)
 character:SetAttribute("Benched", false)
 humanoid.Health = humanoid.MaxHealth
