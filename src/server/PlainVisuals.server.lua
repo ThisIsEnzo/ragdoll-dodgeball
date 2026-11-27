@@ -1,10 +1,5 @@
 -- PlainVisuals: one renderer, no themes, no post effects.
 --
--- This is a Script, so it must NOT end with a return statement. The previous
--- WorldService.server.lua returned a table, which is only legal in a
--- ModuleScript. It errored on load and never ran, leaving the neon theme
--- unopposed. That is why the court turned magenta.
---
 -- Everything this does: neutral daylight, and keep WorldDecor deleted so the
 -- arena is just the wood court ArenaService builds.
 
@@ -21,14 +16,14 @@ end
 
 local function neutral()
 	Lighting.Brightness = 2
-	Lighting.Ambient = Color3.fromRGB(90, 90, 95)
-	Lighting.OutdoorAmbient = Color3.fromRGB(145, 145, 150)
+	Lighting.Ambient = Color3.fromRGB(124, 124, 130)
+	Lighting.OutdoorAmbient = Color3.fromRGB(165, 165, 172)
 	Lighting.ColorShift_Top = Color3.fromRGB(0, 0, 0)
 	Lighting.ColorShift_Bottom = Color3.fromRGB(0, 0, 0)
 	Lighting.EnvironmentDiffuseScale = 0.4
 	Lighting.EnvironmentSpecularScale = 0.3
 	Lighting.GlobalShadows = true
-	Lighting.ShadowSoftness = 0.2
+	Lighting.ShadowSoftness = 0.55
 	Lighting.ClockTime = 14
 	Lighting.GeographicLatitude = 41
 	Lighting.ExposureCompensation = 0
