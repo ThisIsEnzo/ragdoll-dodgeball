@@ -1,6 +1,5 @@
--- BenchBehaviour: sit benched actors and help revived actors return to court.
--- MatchService owns KO/revive state and teleporting. This script only owns
--- Humanoid posture and short return movement; it does not duplicate FX.
+-- BenchBehaviour: KO recovery, walk-to-seat and return movement.
+-- MatchService owns KO/revive state. This script owns the physical bench sequence.
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -17,6 +16,8 @@ local RETURN_SPEED_SECONDS = 2.2
 local SLOT_SPACING_X = 3.8
 local SLOT_SPACING_Z = 1.8
 local SLOTS_PER_ROW = 4
+local ARRIVAL_DISTANCE = 2.4
+local WALK_TIMEOUT = 8
 
 local tracked = {}
 local slots = { [1] = {}, [2] = {} }
@@ -73,6 +74,32 @@ local function waitUntilReady(character, timeout)
 		and character:GetAttribute("Ragdolled") ~= true
 end
 
+local function distanceToTarget(root, target)
+	return (Vector3.new(root.Position.X, 0, root.Position.Z)
+		- Vector3.new(target.X, 0, target.Z)).Magnitude
+end
+
+local function walkToBench(character, humanoid, root, target)
+	humanoid.Sit = false
+	humanoid.AutoRotate = true
+	humanoid.WalkSpeed = CFG.Movement.WalkSpeed * 0.7
+
+	for attempt = 1, 2 do
+		if not character.Parent or character:GetAttribute("Benched") ~= true then return false end
+		if distanceToTarget(root, target) <= ARRIVAL_DISTANCE then return true end
+
+		humanoid:MoveTo(Vector3.new(target.X, root.Position.Y, target.Z))
+		local deadline = os.clock() + WALK_TIMEOUT
+		while os.clock() < deadline do
+			if not character.Parent or character:GetAttribute("Benched") ~= true then return false end
+			if distanceToTarget(root, target) <= ARRIVAL_DISTANCE then return true end
+			task.wait(0.1)
+		end
+	end
+
+	return distanceToTarget(root, target) <= ARRIVAL_DISTANCE
+end
+
 local function sitAtBench(character)
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local root = character:FindFirstChild("HumanoidRootPart")
@@ -81,26 +108,16 @@ local function sitAtBench(character)
 	if not waitUntilReady(character, CFG.Round.RagdollTime + 1.5) then return end
 
 	local target = benchSlotPosition(team, character)
-	local flatOffset = Vector3.new(root.Position.X - target.X, 0, root.Position.Z - target.Z)
-	if flatOffset.Magnitude > 3 then
-		humanoid.WalkSpeed = CFG.Movement.WalkSpeed * 0.7
-		humanoid:MoveTo(Vector3.new(target.X, root.Position.Y, target.Z))
-
-		local deadline = os.clock() + 3
-		while os.clock() < deadline do
-			if not character.Parent or character:GetAttribute("Benched") ~= true then return end
-			local remaining = Vector3.new(root.Position.X - target.X, 0, root.Position.Z - target.Z)
-			if remaining.Magnitude <= 3 then break end
-			task.wait(0.15)
-		end
+	if not walkToBench(character, humanoid, root, target) then
+		warn(string.format("[Bench] %s could not reach seat; leaving actor at safe position", character.Name))
+		return
 	end
 
 	if not humanoid.Parent or character:GetAttribute("Benched") ~= true then return end
-	task.wait(0.2)
-	if humanoid.Parent and character:GetAttribute("Benched") == true then
-		humanoid.Sit = true
-		humanoid.WalkSpeed = 0
-	end
+	humanoid:MoveTo(root.Position)
+	humanoid.Sit = true
+	humanoid.WalkSpeed = 0
+	character:SetAttribute("BenchSeated", true)
 end
 
 local function standAndReturn(character)
@@ -110,8 +127,10 @@ local function standAndReturn(character)
 	if not humanoid or not root or typeof(team) ~= "number" then return end
 	if character:GetAttribute("Benched") == true then return end
 
+	character:SetAttribute("BenchSeated", false)
 	releaseSlot(team, character)
 	humanoid.Sit = false
+	humanoid.AutoRotate = true
 	humanoid.WalkSpeed = CFG.Movement.WalkSpeed * RETURN_SPEED_MULTIPLIER
 	task.wait(0.1)
 	if not humanoid.Parent or character:GetAttribute("Benched") == true then return end
@@ -139,7 +158,7 @@ local function watch(character)
 
 		task.spawn(function()
 			if isBenched then
-				sitAtBench(character)
+				task.spawn(sitAtBench, character)
 			else
 				standAndReturn(character)
 			end
@@ -177,4 +196,4 @@ for _, actor in ipairs(CollectionService:GetTagged("DodgeballActor")) do
 end
 CollectionService:GetInstanceAddedSignal("DodgeballActor"):Connect(watch)
 
-print("[Bench] sit with spaced slots, hop and run back on revive")
+print("[Bench] KO fall -> recover -> walk to assigned seat -> sit")
