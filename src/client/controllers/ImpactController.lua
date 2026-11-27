@@ -57,6 +57,7 @@ local function playSound(id: string, position: Vector3, volume: number, speed: n
 	anchor.CanCollide = false
 	anchor.CanTouch = false
 	anchor.CanQuery = false
+	anchor.CastShadow = false
 	anchor.Transparency = 1
 	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
 	anchor.Position = position

@@ -109,7 +109,7 @@ local hintline = make("TextLabel", {
 	TextSize = 10,
 	TextColor3 = DIM,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	Text = "TAB cycles targets  Â·  back in play next round",
+	Text = "TAB cycles targets  ·  back in play next round",
 }, bar)
 
 local tipCard = make("Frame", {
@@ -312,7 +312,7 @@ RunService.RenderStepped:Connect(function(dt)
 	local want = smoothPos + offset
 	camera.CFrame = CFrame.lookAt(camera.CFrame.Position:Lerp(want, math.clamp(dt * 3.2, 0, 1)), smoothPos)
 
-	subline.Text = string.format("watching %s  Â·  %s", name, tostring(why))
+	subline.Text = string.format("watching %s  ·  %s", name, tostring(why))
 
 	tipTimer += dt
 	if tipTimer > 6 then

@@ -1,7 +1,6 @@
 -- BenchBehaviour: sit benched actors and help revived actors return to court.
 -- MatchService owns KO/revive state and teleporting. This script only owns
--- the Humanoid posture and short return movement; it does not duplicate FX
--- or move actors to a second spawn location.
+-- Humanoid posture and short return movement; it does not duplicate FX.
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -15,10 +14,44 @@ local ArenaService = Resolve.Require(ServerScriptService, "ArenaService")
 
 local RETURN_SPEED_MULTIPLIER = 1.25
 local RETURN_SPEED_SECONDS = 2.2
-local tracked = {}
+local SLOT_SPACING_X = 3.8
+local SLOT_SPACING_Z = 1.8
+local SLOTS_PER_ROW = 4
 
-local function benchPosition(team)
-	return ArenaService.BenchPosition(team)
+local tracked = {}
+local slots = { [1] = {}, [2] = {} }
+
+local function claimSlot(team, character)
+	local teamSlots = slots[team]
+	if not teamSlots then return 0 end
+	if teamSlots[character] ~= nil then return teamSlots[character] end
+
+	local used = {}
+	for _, index in pairs(teamSlots) do
+		used[index] = true
+	end
+	local index = 0
+	while used[index] do
+		index += 1
+	end
+	teamSlots[character] = index
+	return index
+end
+
+local function releaseSlot(team, character)
+	local teamSlots = slots[team]
+	if teamSlots then teamSlots[character] = nil end
+end
+
+local function benchSlotPosition(team, character)
+	local base = ArenaService.BenchPosition(team)
+	local index = claimSlot(team, character)
+	local column = index % SLOTS_PER_ROW
+	local row = math.floor(index / SLOTS_PER_ROW)
+	local xOffset = (column - (SLOTS_PER_ROW - 1) * 0.5) * SLOT_SPACING_X
+	local sign = if team == 2 then 1 else -1
+	local zOffset = sign * row * SLOT_SPACING_Z
+	return base + Vector3.new(xOffset, 0, zOffset)
 end
 
 local function courtEntry(team)
@@ -47,7 +80,7 @@ local function sitAtBench(character)
 	if not humanoid or not root or typeof(team) ~= "number" then return end
 	if not waitUntilReady(character, CFG.Round.RagdollTime + 1.5) then return end
 
-	local target = benchPosition(team)
+	local target = benchSlotPosition(team, character)
 	local flatOffset = Vector3.new(root.Position.X - target.X, 0, root.Position.Z - target.Z)
 	if flatOffset.Magnitude > 3 then
 		humanoid.WalkSpeed = CFG.Movement.WalkSpeed * 0.7
@@ -77,8 +110,7 @@ local function standAndReturn(character)
 	if not humanoid or not root or typeof(team) ~= "number" then return end
 	if character:GetAttribute("Benched") == true then return end
 
-	-- MatchService.ReviveOne has already restored and teleported the actor
-	-- before this deferred handler resumes.
+	releaseSlot(team, character)
 	humanoid.Sit = false
 	humanoid.WalkSpeed = CFG.Movement.WalkSpeed * RETURN_SPEED_MULTIPLIER
 	task.wait(0.1)
@@ -115,7 +147,11 @@ local function watch(character)
 	end)
 
 	character.AncestryChanged:Connect(function(_, parent)
-		if parent == nil then tracked[character] = nil end
+		if parent == nil then
+			tracked[character] = nil
+			local team = character:GetAttribute("Team")
+			if typeof(team) == "number" then releaseSlot(team, character) end
+		end
 	end)
 
 	if wasBenched then
@@ -141,4 +177,4 @@ for _, actor in ipairs(CollectionService:GetTagged("DodgeballActor")) do
 end
 CollectionService:GetInstanceAddedSignal("DodgeballActor"):Connect(watch)
 
-print("[Bench] sit on knockout, hop and run back on revive")
+print("[Bench] sit with spaced slots, hop and run back on revive")

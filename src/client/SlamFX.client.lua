@@ -228,6 +228,7 @@ local function impactBurst(character)
 	anchor.CanCollide = false
 	anchor.CanQuery = false
 	anchor.CanTouch = false
+	anchor.CastShadow = false
 	anchor.Transparency = 1
 	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
 	anchor.CFrame = root.CFrame
